@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Enum, Index, String, Text, func
+from sqlalchemy import Boolean, Enum, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -42,6 +42,8 @@ class Company(Base):
     clickup_task_id: Mapped[str | None] = mapped_column(String(100))
     clickup_task_url: Mapped[str | None] = mapped_column(String(500))
     clickup_status: Mapped[str | None] = mapped_column(String(100))
+    monitor: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    monitor_pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     slack_notified_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
@@ -58,6 +60,7 @@ class Company(Base):
         Index("ix_companies_lead_score", "lead_score"),
         Index("ix_companies_kvk_number", "kvk_number"),
         Index("ix_companies_domain", "domain"),
+        Index("ix_companies_monitor", "monitor"),
         Index("uq_companies_name_domain", "name", "domain", unique=True),
     )
 

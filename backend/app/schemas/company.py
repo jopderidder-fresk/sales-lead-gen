@@ -32,6 +32,8 @@ class CompanyCreate(BaseModel):
     facebook_url: str | None = Field(default=None, max_length=500)
     twitter_url: str | None = Field(default=None, max_length=500)
     bedrijfsdata: dict | None = None
+    monitor: bool = False
+    monitor_pinned: bool = False
     status: CompanyStatus = CompanyStatus.DISCOVERED
     clickup_task_id: str | None = Field(default=None, max_length=100)
     clickup_task_url: str | None = Field(default=None, max_length=500)
@@ -60,6 +62,8 @@ class CompanyUpdate(BaseModel):
     facebook_url: str | None = Field(default=None, max_length=500)
     twitter_url: str | None = Field(default=None, max_length=500)
     bedrijfsdata: dict | None = None
+    monitor: bool | None = None
+    monitor_pinned: bool | None = None
     status: CompanyStatus | None = None
     clickup_task_id: str | None = Field(default=None, max_length=100)
     clickup_task_url: str | None = Field(default=None, max_length=500)
@@ -99,6 +103,8 @@ class CompanyResponse(BaseModel):
     facebook_url: str | None = None
     twitter_url: str | None = None
     bedrijfsdata: dict | None = None
+    monitor: bool
+    monitor_pinned: bool
     status: CompanyStatus
     clickup_task_id: str | None
     clickup_task_url: str | None

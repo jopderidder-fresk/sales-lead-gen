@@ -35,6 +35,12 @@ export function useICPProfiles() {
   });
 }
 
+export function useHasActiveICP() {
+  const { data: profiles, isLoading } = useICPProfiles();
+  const hasActiveICP = isLoading || (profiles?.some((p) => p.is_active) ?? false);
+  return { hasActiveICP, isLoading };
+}
+
 export function useCreateProfile() {
   const qc = useQueryClient();
   return useMutation({

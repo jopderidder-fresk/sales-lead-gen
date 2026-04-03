@@ -89,6 +89,8 @@ export interface CompanyResponse {
   facebook_url: string | null;
   twitter_url: string | null;
   bedrijfsdata: BedrijfsdataData | null;
+  monitor: boolean;
+  monitor_pinned: boolean;
   status: CompanyStatus;
   clickup_task_id: string | null;
   clickup_task_url: string | null;
@@ -168,6 +170,8 @@ export interface CompanyCreate {
   organization_type?: string | null;
   facebook_url?: string | null;
   twitter_url?: string | null;
+  monitor?: boolean;
+  monitor_pinned?: boolean;
   status?: CompanyStatus;
   clickup_task_id?: string | null;
 }
@@ -194,6 +198,8 @@ export interface CompanyUpdate {
   organization_type?: string | null;
   facebook_url?: string | null;
   twitter_url?: string | null;
+  monitor?: boolean | null;
+  monitor_pinned?: boolean | null;
   status?: CompanyStatus | null;
   clickup_task_id?: string | null;
 }
@@ -204,6 +210,7 @@ export interface CompanyListParams {
   status?: CompanyStatus | null;
   industry?: string | null;
   min_score?: number | null;
+  monitor?: boolean | null;
   search?: string | null;
   added_after?: string | null;
   added_before?: string | null;

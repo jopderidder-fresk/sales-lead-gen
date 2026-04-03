@@ -16,6 +16,7 @@ from app.core.utils import LIKE_ESCAPE, escape_like, today_start_utc
 from app.models.company import Company
 from app.models.contact import Contact
 from app.models.enrichment_job import EnrichmentJob
+from app.models.icp_profile import ICPProfile
 from app.models.enums import CompanyStatus, EnrichmentJobStatus, ScrapeJobStatus, SignalType
 from app.models.scrape_job import ScrapeJob
 from app.models.signal import Signal
@@ -378,6 +379,7 @@ async def list_companies(
     industry: str | None = Query(default=None, max_length=255),
     min_score: float | None = Query(default=None, ge=0),
     min_lead_score: float | None = Query(default=None, ge=0),
+    monitor: bool | None = Query(default=None),
     search: str | None = Query(default=None, max_length=255),
     added_after: date | None = Query(default=None),
     added_before: date | None = Query(default=None),
@@ -404,6 +406,8 @@ async def list_companies(
         query = query.where(Company.icp_score >= min_score)
     if min_lead_score is not None:
         query = query.where(Company.lead_score >= min_lead_score)
+    if monitor is not None:
+        query = query.where(Company.monitor == monitor)
 
     # Date range filter
     if added_after is not None:
@@ -580,6 +584,10 @@ async def update_company(
                 detail="A company with this name and domain already exists",
             )
 
+    # When the user explicitly toggles monitor, pin it so auto-logic won't override
+    if "monitor" in update_data and "monitor_pinned" not in update_data:
+        update_data["monitor_pinned"] = True
+
     for field, value in update_data.items():
         setattr(company, field, value)
 
@@ -701,6 +709,18 @@ async def trigger_linkedin_scrape(
 
 
 # ── Sub-resource helpers ────────────────────────────────────────────────────
+
+
+async def _require_active_icp(session: AsyncSession) -> None:
+    """Raise 422 if no ICP profile is active."""
+    result = await session.execute(
+        select(ICPProfile.id).where(ICPProfile.is_active.is_(True)).limit(1)
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="No active ICP profile. Please activate an ICP profile first.",
+        )
 
 
 async def _get_company_or_404(session: AsyncSession, company_id: int) -> Company:
@@ -847,6 +867,7 @@ async def trigger_enrich(
 
     Uses existing scraped content from Signal records. Never scrapes.
     """
+    await _require_active_icp(session)
     await _get_company_or_404(session, company_id)
 
     # Check daily enrichment limit
@@ -910,6 +931,7 @@ async def trigger_contacts(
 
     Never scrapes websites. Uses already-scraped Signal data for LLM fallback.
     """
+    await _require_active_icp(session)
     await _get_company_or_404(session, company_id)
 
     # Create an EnrichmentJob record so status is trackable in the UI
@@ -955,6 +977,7 @@ async def trigger_scrape(
     """Create a scrape job record and dispatch a Firecrawl crawl task
     that scrapes the company's domain (about, team, careers, blog, news pages).
     """
+    await _require_active_icp(session)
     company = await _get_company_or_404(session, company_id)
 
     # Check daily scrape limit
@@ -1044,7 +1067,7 @@ async def trigger_scrape(
     "/{company_id}/pipeline",
     response_model=MonitorTriggerResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Run full pipeline: scrape → enrich → contacts",
+    summary="Run full pipeline: scrape → linkedin → enrich → contacts",
     tags=["enrichment"],
 )
 async def trigger_pipeline(
@@ -1052,10 +1075,11 @@ async def trigger_pipeline(
     _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> MonitorTriggerResponse:
-    """Run the full pipeline for a company: scrape → enrich → find contacts.
+    """Run the full pipeline for a company: scrape → linkedin → enrich → contacts.
 
-    Uses Celery chain to run the three tasks in sequence.
+    Uses Celery chain to run the four tasks in sequence.
     """
+    await _require_active_icp(session)
     company = await _get_company_or_404(session, company_id)
 
     # Create job records for tracking
@@ -1076,11 +1100,13 @@ async def trigger_pipeline(
 
     from app.tasks.contacts import find_company_contacts
     from app.tasks.enrichment import enrich_company
+    from app.tasks.linkedin import scrape_company_linkedin_safe
     from app.tasks.scraping import trigger_company_scrape
 
     try:
         pipeline = chain(
             trigger_company_scrape.si(company_id, scrape_job.id),
+            scrape_company_linkedin_safe.si(company_id),
             enrich_company.si(company_id, enrich_job.id),
             find_company_contacts.si(company_id, contacts_job.id),
         )
@@ -1110,7 +1136,7 @@ async def trigger_pipeline(
     return MonitorTriggerResponse(
         task_id=result.id,
         company_id=company_id,
-        message="Pipeline dispatched: scrape → enrich → contacts",
+        message="Pipeline dispatched: scrape → linkedin → enrich → contacts",
     )
 
 

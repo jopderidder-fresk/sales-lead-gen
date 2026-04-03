@@ -113,15 +113,13 @@ _DEFAULT_ICP_CRITERIA = """\
 Certification), insurance, or agricultural supply chain. Companies where field service \
 professionals (monteurs, engineers, inspecteurs, installateurs) or frontline knowledge \
 workers (planners, schadebehandelaars, kwaliteitscontroleurs) are core to operations.
-2. Company size: Mid-market with €20M-€250M revenue (primary) or €250M+ (secondary). \
-Typically 100-5000 employees.
-3. Geography: Netherlands (primary), Western/Central Europe (secondary).
-4. Pain points: Legacy systems (ERP/CRM/FSM not optimised for end users), paper-based \
+2. Geography: Netherlands (primary), Western/Central Europe (secondary).
+3. Pain points: Legacy systems (ERP/CRM/FSM not optimised for end users), paper-based \
 or fragmented field processes, workforce shortages, aging workforce with undocumented \
 knowledge, low adoption of digital tools, inefficient workflows.
-5. Digital maturity: Digitally aware but struggling with execution — they know digital \
+4. Digital maturity: Digitally aware but struggling with execution — they know digital \
 transformation is needed but lack in-house capability to build user-centric solutions.
-6. Budget: Able to invest €40k-€250k+ in digital product development."""
+5. Budget: Able to invest €40k-€250k+ in digital product development."""
 
 
 @dataclass

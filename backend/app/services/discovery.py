@@ -327,6 +327,7 @@ class DiscoveryService:
                 location=location,
                 status=CompanyStatus.DISCOVERED,
                 icp_score=icp_score,
+                monitor=icp_score >= 85,
                 kvk_number=bd_company.coc,
                 phone=bd_company.phone,
                 email=bd_company.email,

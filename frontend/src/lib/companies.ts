@@ -36,6 +36,7 @@ export function useCompanies(params: CompanyListParams) {
       if (params.status) query.status = params.status;
       if (params.industry) query.industry = params.industry;
       if (params.min_score != null) query.min_score = String(params.min_score);
+      if (params.monitor != null) query.monitor = String(params.monitor);
       if (params.search) query.search = params.search;
       if (params.added_after) query.added_after = params.added_after;
       if (params.added_before) query.added_before = params.added_before;

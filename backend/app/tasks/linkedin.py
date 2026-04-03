@@ -110,17 +110,18 @@ async def _scrape_linkedin_batch() -> str:
     if not apify_token:
         return "linkedin_batch: skipped — no Apify API token configured"
 
-    # Find companies with LinkedIn URLs that aren't archived
+    # Find monitored companies with LinkedIn URLs
     async with async_session_factory() as session:
         query = select(Company.id).where(
             Company.linkedin_url.isnot(None),
+            Company.monitor.is_(True),
             Company.status != CompanyStatus.ARCHIVED,
         )
         result = await session.execute(query)
         company_ids = list(result.scalars().all())
 
     if not company_ids:
-        return "linkedin_batch: no companies with LinkedIn URLs to scrape"
+        return "linkedin_batch: no monitored companies with LinkedIn URLs to scrape"
 
     logger.info("linkedin.batch.start", count=len(company_ids), days_back=days_back)
 
@@ -179,6 +180,26 @@ def scrape_company_linkedin(company_id: int) -> str:
     recalculate_company_score.delay(company_id)
 
     return result
+
+
+@celery_app.task(
+    base=BaseTask,
+    name="app.tasks.linkedin.scrape_company_linkedin_safe",
+    acks_late=True,
+    time_limit=300,
+    soft_time_limit=240,
+)
+def scrape_company_linkedin_safe(company_id: int) -> str:
+    """Pipeline-safe LinkedIn scrape: never raises, never triggers score recalc.
+
+    Used inside the pipeline chain so a LinkedIn failure cannot prevent
+    the subsequent enrich and contacts steps from running.
+    """
+    try:
+        return run_async(_scrape_linkedin_single(company_id))
+    except Exception:
+        logger.exception("linkedin.pipeline_safe_failed", company_id=company_id)
+        return f"linkedin_scrape: failed (non-fatal) for company {company_id}"
 
 
 @celery_app.task(

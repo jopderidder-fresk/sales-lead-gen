@@ -14,6 +14,7 @@ import {
   useTriggerScrape,
 } from "@/lib/companyDetail";
 import { useUpdateCompany, useDeleteCompany } from "@/lib/companies";
+import { useHasActiveICP } from "@/lib/icp";
 import {
   EmailStatusBadge,
   LeadScoreBadge,
@@ -432,6 +433,51 @@ function EditModal({
         </form>
       </div>
     </div>
+  );
+}
+
+// ── Monitor toggle ──────────────────────────────────────────────────────────────
+
+function MonitorToggle({ company }: { company: { id: number; monitor: boolean; monitor_pinned: boolean; icp_score: number | null } }) {
+  const update = useUpdateCompany();
+  const isAuto = !company.monitor_pinned && company.icp_score !== null && company.icp_score >= 85;
+
+  function handleToggle() {
+    update.mutate({
+      id: company.id,
+      monitor: !company.monitor,
+    });
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleToggle}
+      disabled={update.isPending}
+      title={
+        company.monitor
+          ? company.monitor_pinned
+            ? "Monitoring (manually enabled) — click to disable"
+            : "Monitoring (auto-enabled, ICP 85+) — click to pin off"
+          : "Not monitoring — click to enable"
+      }
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+        company.monitor
+          ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+          : "bg-muted text-muted-foreground hover:bg-accent",
+      )}
+    >
+      {update.isPending ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : (
+        <span className={cn("inline-block h-2 w-2 rounded-full", company.monitor ? "bg-emerald-500" : "bg-gray-400")} />
+      )}
+      {company.monitor ? "Monitoring" : "Not Monitored"}
+      {isAuto && !company.monitor_pinned && (
+        <span className="text-[10px] opacity-70">auto</span>
+      )}
+    </button>
   );
 }
 
@@ -1300,6 +1346,7 @@ export default function CompanyDetail() {
   const [archiveConfirm, setArchiveConfirm] = useState(false);
 
   const { data: company, isLoading, isError } = useCompanyDetail(companyId);
+  const { hasActiveICP } = useHasActiveICP();
   const enrichMutation = useTriggerEnrichment(companyId);
   const scrapeMutation = useTriggerScrape(companyId);
   const contactsMutation = useTriggerContacts(companyId);
@@ -1465,8 +1512,9 @@ export default function CompanyDetail() {
             )}
           </div>
 
-          {/* Right: badges */}
+          {/* Right: badges + monitor toggle */}
           <div className="flex flex-wrap items-center gap-2">
+            <MonitorToggle company={company} />
             <LeadScoreBadge score={company.lead_score} />
             <ScoreBadge score={company.icp_score} />
             <StatusBadge status={company.status} />
@@ -1515,9 +1563,10 @@ export default function CompanyDetail() {
           </button>
           <button
             type="button"
-            disabled={scrapeMutation.isPending || scrapeRunning}
+            disabled={!hasActiveICP || scrapeMutation.isPending || scrapeRunning}
             onClick={() => scrapeMutation.mutate()}
             className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
+            title={!hasActiveICP ? "Activate an ICP profile first" : undefined}
           >
             {(scrapeMutation.isPending || scrapeRunning) ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -1526,9 +1575,10 @@ export default function CompanyDetail() {
           </button>
           <button
             type="button"
-            disabled={enrichMutation.isPending || enrichmentRunning}
+            disabled={!hasActiveICP || enrichMutation.isPending || enrichmentRunning}
             onClick={() => enrichMutation.mutate()}
             className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
+            title={!hasActiveICP ? "Activate an ICP profile first" : undefined}
           >
             {(enrichMutation.isPending || enrichmentRunning) ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -1537,9 +1587,10 @@ export default function CompanyDetail() {
           </button>
           <button
             type="button"
-            disabled={contactsMutation.isPending}
+            disabled={!hasActiveICP || contactsMutation.isPending}
             onClick={() => contactsMutation.mutate()}
             className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
+            title={!hasActiveICP ? "Activate an ICP profile first" : undefined}
           >
             {contactsMutation.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -1560,9 +1611,10 @@ export default function CompanyDetail() {
           </button>
           <button
             type="button"
-            disabled={pipelineMutation.isPending || scrapeRunning || enrichmentRunning}
+            disabled={!hasActiveICP || pipelineMutation.isPending || scrapeRunning || enrichmentRunning}
             onClick={() => pipelineMutation.mutate()}
             className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            title={!hasActiveICP ? "Activate an ICP profile first" : undefined}
           >
             {(pipelineMutation.isPending || scrapeRunning || enrichmentRunning) ? (
               <Loader2 className="h-4 w-4 animate-spin" />

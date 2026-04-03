@@ -202,7 +202,7 @@ class TestRelevanceScoring:
     def test_default_system_message_has_icp(self) -> None:
         """Default SYSTEM_MESSAGE should contain the default ICP criteria."""
         assert "Industry fit" in relevance_scoring.SYSTEM_MESSAGE
-        assert "Company size" in relevance_scoring.SYSTEM_MESSAGE
+        assert "Geography" in relevance_scoring.SYSTEM_MESSAGE
 
 
 # ---------------------------------------------------------------------------

@@ -109,9 +109,17 @@ class LeadScoringService:
         }
 
         now = utcnow()
+        company.icp_score = round(icp_fit, 2)
         company.lead_score = lead_score
         company.score_breakdown = breakdown  # type: ignore[assignment]
         company.score_updated_at = now
+
+        # Auto-enable/disable monitor based on ICP score (unless user pinned it)
+        if not company.monitor_pinned:
+            company.monitor = (
+                company.icp_score is not None and company.icp_score >= 85
+            )
+
         await session.commit()
 
         logger.info(
@@ -166,13 +174,11 @@ class LeadScoringService:
     async def _calc_icp_fit(company: Company, session: AsyncSession) -> float:
         """Score 0-100 based on how well the company matches the active ICP profile.
 
-        Uses the existing icp_score if set, otherwise estimates from ICP filters.
+        Always recalculates from the active ICP profile so the score stays
+        fresh after enrichment updates company data.
         """
-        # If discovery already computed an ICP score, use it directly
-        if company.icp_score is not None:
-            return min(100.0, max(0.0, company.icp_score))
+        from app.services.discovery import calculate_icp_score
 
-        # Otherwise, compute a basic match against the active ICP profile
         result = await session.execute(
             select(ICPProfile).where(ICPProfile.is_active.is_(True)).limit(1)
         )
@@ -180,32 +186,7 @@ class LeadScoringService:
         if profile is None:
             return 50.0  # Neutral score when no ICP is configured
 
-        score = 0.0
-        checks = 0
-
-        # Industry match
-        if profile.industry_filter and company.industry:
-            industries = (
-                profile.industry_filter
-                if isinstance(profile.industry_filter, list)
-                else []
-            )
-            if industries:
-                checks += 1
-                company_ind = company.industry.lower()
-                if any(ind.lower() in company_ind or company_ind in ind.lower() for ind in industries):
-                    score += 100.0
-
-        # Geography match
-        if profile.geo_filter and company.location:
-            countries = profile.geo_filter.get("countries", []) if isinstance(profile.geo_filter, dict) else []
-            if countries:
-                checks += 1
-                loc_lower = company.location.lower()
-                if any(c.lower() in loc_lower for c in countries):
-                    score += 100.0
-
-        # Negative filters
+        # Hard-disqualify companies in excluded industries
         if profile.negative_filters and company.industry:
             excluded = (
                 profile.negative_filters.get("excluded_industries", [])
@@ -215,11 +196,24 @@ class LeadScoringService:
             if excluded:
                 company_ind = company.industry.lower()
                 if any(ex.lower() in company_ind for ex in excluded):
-                    return 0.0  # Hard disqualify
+                    return 0.0
 
-        if checks == 0:
-            return 50.0
-        return score / checks
+        # Collect tech list from company_info or bedrijfsdata
+        techs: list[str] | None = None
+        if company.company_info and isinstance(company.company_info, dict):
+            techs = company.company_info.get("technologies")
+        if not techs and company.bedrijfsdata and isinstance(company.bedrijfsdata, dict):
+            apps_str = company.bedrijfsdata.get("apps", "")
+            if apps_str:
+                techs = [a.strip() for a in apps_str.split(",") if a.strip()]
+
+        return calculate_icp_score(
+            profile,
+            industry=company.industry,
+            employees=company.employee_count,
+            location=company.location,
+            techs=techs,
+        )
 
     @staticmethod
     async def _calc_signal_strength(company_id: int, session: AsyncSession) -> float:

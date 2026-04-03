@@ -10,6 +10,7 @@ import {
   type CompanyListParams,
   type CompanyStatus,
 } from "@/lib/companies";
+import { useHasActiveICP } from "@/lib/icp";
 import { LeadScoreBadge, ScoreBadge, StatusBadge } from "@/components/badges";
 import { cn } from "@/lib/utils";
 import { Select, CustomSelect } from "@/components/Select";
@@ -235,6 +236,7 @@ function BulkActionBar({
 // ── Main component ────────────────────────────────────────────────
 
 export default function Companies() {
+  const { hasActiveICP } = useHasActiveICP();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -252,6 +254,7 @@ export default function Companies() {
     rawMinScoreStr !== null && Number.isFinite(rawMinScore) && rawMinScore >= 0
       ? rawMinScore
       : null;
+  const urlMonitor = searchParams.get("monitor") === "true" ? true : null;
   const urlAddedAfter = searchParams.get("added_after") || null;
   const urlAddedBefore = searchParams.get("added_before") || null;
   const rawSort = searchParams.get("sort") || "icp_score";
@@ -317,7 +320,7 @@ export default function Companies() {
   // Clear selection when filters/page/sort change
   useEffect(() => {
     setSelected(new Set());
-  }, [urlPage, urlLimit, urlStatus, urlIndustry, urlMinScore, urlSearch, urlAddedAfter, urlAddedBefore, urlSort, urlOrder]);
+  }, [urlPage, urlLimit, urlStatus, urlIndustry, urlMinScore, urlMonitor, urlSearch, urlAddedAfter, urlAddedBefore, urlSort, urlOrder]);
 
   // Build query params
   const queryParams: CompanyListParams = useMemo(
@@ -327,13 +330,14 @@ export default function Companies() {
       status: urlStatus,
       industry: urlIndustry,
       min_score: urlMinScore,
+      monitor: urlMonitor,
       search: urlSearch || null,
       added_after: urlAddedAfter,
       added_before: urlAddedBefore,
       sort: urlSort,
       order: urlOrder,
     }),
-    [urlPage, urlLimit, urlStatus, urlIndustry, urlMinScore, urlSearch, urlAddedAfter, urlAddedBefore, urlSort, urlOrder],
+    [urlPage, urlLimit, urlStatus, urlIndustry, urlMinScore, urlMonitor, urlSearch, urlAddedAfter, urlAddedBefore, urlSort, urlOrder],
   );
 
   const { data, isLoading, isFetching, isError } = useCompanies(queryParams);
@@ -348,7 +352,7 @@ export default function Companies() {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / urlLimit)) : 1;
-  const hasFilters = !!(urlSearch || urlStatus || urlIndustry || urlMinScore !== null || urlAddedAfter || urlAddedBefore);
+  const hasFilters = !!(urlSearch || urlStatus || urlIndustry || urlMinScore !== null || urlMonitor || urlAddedAfter || urlAddedBefore);
 
   // Sort toggle
   function handleSort(col: string) {
@@ -559,6 +563,22 @@ export default function Companies() {
               />
             </div>
 
+            {/* Monitor filter */}
+            <div className="flex items-end">
+              <label className="inline-flex cursor-pointer items-center gap-2 pb-1 text-sm">
+                <input
+                  type="checkbox"
+                  checked={urlMonitor === true}
+                  onChange={(e) => updateParam("monitor", e.target.checked ? "true" : null)}
+                  className="h-4 w-4 rounded border-input accent-primary"
+                />
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                  Monitored only
+                </span>
+              </label>
+            </div>
+
             {/* Added date range filter */}
             <div>
               <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -689,6 +709,7 @@ export default function Companies() {
                 <CompanyRow
                   key={company.id}
                   company={company}
+                  hasActiveICP={hasActiveICP}
                   selected={selected.has(company.id)}
                   onToggleSelect={() => toggleSelect(company.id)}
                   onClick={() => navigate(`/companies/${company.id}`)}
@@ -789,11 +810,13 @@ export default function Companies() {
 
 function CompanyRow({
   company,
+  hasActiveICP,
   selected,
   onToggleSelect,
   onClick,
 }: {
   company: Company;
+  hasActiveICP: boolean;
   selected: boolean;
   onToggleSelect: () => void;
   onClick: () => void;
@@ -857,7 +880,15 @@ function CompanyRow({
         <LeadScoreBadge score={company.lead_score} />
       </td>
       <td className="px-4 py-3.5">
-        <StatusBadge status={company.status} />
+        <div className="flex items-center gap-1.5">
+          <StatusBadge status={company.status} />
+          {company.monitor && (
+            <span
+              className="inline-block h-2 w-2 rounded-full bg-emerald-500"
+              title="Monitored — LinkedIn checked weekly"
+            />
+          )}
+        </div>
       </td>
       <td className="px-4 py-3.5 text-muted-foreground">
         {new Date(company.created_at).toLocaleDateString()}
@@ -866,7 +897,8 @@ function CompanyRow({
         <div className="flex gap-1">
           <button
             type="button"
-            disabled={scrapeMutation.isPending}
+            disabled={!hasActiveICP || scrapeMutation.isPending}
+            title={!hasActiveICP ? "Activate an ICP profile first" : undefined}
             onClick={() => handleAction(scrapeMutation, setScrapeStatus)}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50",
@@ -896,7 +928,8 @@ function CompanyRow({
           </button>
           <button
             type="button"
-            disabled={pipelineMutation.isPending}
+            disabled={!hasActiveICP || pipelineMutation.isPending}
+            title={!hasActiveICP ? "Activate an ICP profile first" : undefined}
             onClick={() => handleAction(pipelineMutation, setPipelineStatus)}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50",

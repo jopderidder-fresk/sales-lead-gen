@@ -358,3 +358,37 @@ class TestCompanyScrapeJobs:
     def test_list_scrape_jobs_unauthenticated(self, client: TestClient) -> None:
         response = client.get("/api/v1/companies/1/scrape-jobs")
         assert response.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# POST /{company_id}/scrape | enrich | contacts | pipeline — ICP guard
+# ---------------------------------------------------------------------------
+
+
+class TestRequireActiveICP:
+    """All pipeline-triggering endpoints must reject with 422 when no ICP is active."""
+
+    ENDPOINTS = [
+        "/api/v1/companies/1/scrape",
+        "/api/v1/companies/1/enrich",
+        "/api/v1/companies/1/contacts",
+        "/api/v1/companies/1/pipeline",
+    ]
+
+    @pytest.mark.parametrize("endpoint", ENDPOINTS)
+    def test_returns_422_when_no_active_icp(self, client: TestClient, endpoint: str) -> None:
+        user = _fake_user()
+        # Session returns None for the ICP lookup (scalar_one_or_none)
+        no_icp_result = MagicMock()
+        no_icp_result.scalar_one_or_none.return_value = None
+        mock_session = AsyncMock()
+        mock_session.execute.return_value = no_icp_result
+
+        app.dependency_overrides[get_current_user] = lambda: user
+        app.dependency_overrides[get_session] = lambda: mock_session
+        try:
+            response = client.post(endpoint, headers=_auth_header())
+            assert response.status_code == 422
+            assert "ICP" in response.json()["detail"]
+        finally:
+            app.dependency_overrides.clear()
