@@ -1,0 +1,43 @@
+# Version control
+.git
+.github
+
+# Python virtual environments
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+*.egg-info
+.mypy_cache
+.ruff_cache
+.pytest_cache
+htmlcov
+
+# Node
+frontend/node_modules
+
+# IDE / OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Environment files (secrets)
+.env
+.env.*
+!.env.example
+
+# Project files not needed in containers
+backlog
+.agents
+.claude
+.pre-commit-config.yaml
+skills-lock.json
+README.md
+Makefile
+*.key.json
+
+# Docker compose files (not needed inside images)
+docker/docker-compose*.yml
+docker/.env.*

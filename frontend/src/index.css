@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  /* fresk.digital brand — refined editorial palette */
+  /* Primary: Raisin Black #302A2F | Navy: #04151F | Cream: #FCF8F7 */
+  --color-background: hsl(25 30% 97%);
+  --color-foreground: hsl(310 7% 18%);
+  --color-card: hsl(0 0% 100%);
+  --color-card-foreground: hsl(310 7% 18%);
+  --color-popover: hsl(0 0% 100%);
+  --color-popover-foreground: hsl(310 7% 18%);
+  --color-primary: hsl(310 7% 18%);
+  --color-primary-foreground: hsl(25 30% 97%);
+  --color-secondary: hsl(25 15% 94%);
+  --color-secondary-foreground: hsl(310 7% 18%);
+  --color-muted: hsl(25 12% 93%);
+  --color-muted-foreground: hsl(310 4% 46%);
+  --color-accent: hsl(25 15% 92%);
+  --color-accent-foreground: hsl(310 7% 18%);
+  --color-destructive: hsl(0 72% 51%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+  --color-border: hsl(25 12% 88%);
+  --color-input: hsl(25 12% 88%);
+  --color-ring: hsl(310 7% 18%);
+  /* Sidebar: dark Raisin Black */
+  --color-sidebar-background: hsl(310 7% 14%);
+  --color-sidebar-foreground: hsl(25 15% 72%);
+  --color-sidebar-primary: hsl(25 30% 97%);
+  --color-sidebar-primary-foreground: hsl(310 7% 14%);
+  --color-sidebar-accent: hsl(310 6% 20%);
+  --color-sidebar-accent-foreground: hsl(25 30% 97%);
+  --color-sidebar-border: hsl(310 6% 22%);
+  --color-sidebar-ring: hsl(25 30% 97%);
+  /* Accent: warm amber */
+  --color-amber: hsl(36 90% 55%);
+  --color-amber-foreground: hsl(310 7% 14%);
+  --radius: 0.625rem;
+
+  /* animation tokens */
+  --animate-enter: enter 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-enter-up: enter-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade-in: fade-in 0.4s ease both;
+  --animate-slide-in-left: slide-in-left 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-slide-in-right: slide-in-right 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+
+@keyframes enter-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: "DM Sans", system-ui, sans-serif;
+  }
+  h1, h2, h3, h4 {
+    font-family: "DM Serif Display", Georgia, serif;
+    letter-spacing: -0.01em;
+  }
+  /* refined focus ring */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring/50 ring-offset-2 ring-offset-background;
+  }
+  /* smoother scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(25 12% 82%);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(25 12% 70%);
+  }
+}

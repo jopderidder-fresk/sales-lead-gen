@@ -1,0 +1,111 @@
+# Log rotation for all services (default json-file driver caps size per container).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sales}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sales}
+      POSTGRES_DB: ${POSTGRES_DB:-sales}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -U ${POSTGRES_USER:-sales}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    logging: *default-logging
+    command: redis-server --requirepass ${REDIS_PASSWORD:-changeme_redis}
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme_redis}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    logging: *default-logging
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+      target: dev
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ../backend:/app
+    env_file:
+      - ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-worker:
+    logging: *default-logging
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+      target: dev
+    command: celery -A app.tasks.worker worker --loglevel=info -Q celery,discovery,enrichment,monitoring,llm,integrations
+    volumes:
+      - ../backend:/app
+    env_file:
+      - ../.env
+    depends_on:
+      backend:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-beat:
+    logging: *default-logging
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+      target: dev
+    command: celery -A app.tasks.worker beat --loglevel=info
+    volumes:
+      - ../backend:/app
+    env_file:
+      - ../.env
+    depends_on:
+      backend:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    logging: *default-logging
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+      target: dev
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+    env_file:
+      - ../.env
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

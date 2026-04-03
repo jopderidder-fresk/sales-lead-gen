@@ -1,0 +1,199 @@
+# =============================================================================
+# Production Docker Compose for Azure VM (B2als_v2 — 2 vCPU, 4 GB RAM)
+# Usage: docker compose -f docker/docker-compose.azure.yml up -d --build
+# =============================================================================
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-backend-env: &backend-env
+  env_file:
+    - ../.env
+  environment:
+    - APP_ENV=${APP_ENV:-production}
+    - APP_DEBUG=false
+    - TRUSTED_PROXY=true
+    - POSTGRES_HOST=postgres
+    - REDIS_HOST=redis
+
+services:
+  # ---------------------------------------------------------------------------
+  # Reverse Proxy (automatic HTTPS via Let's Encrypt)
+  # ---------------------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    logging: *default-logging
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      - DOMAIN=${DOMAIN:?DOMAIN is required}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ---------------------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    logging: *default-logging
+    restart: unless-stopped
+    command: >
+      postgres
+      -c shared_buffers=64MB
+      -c work_mem=4MB
+      -c maintenance_work_mem=32MB
+      -c effective_cache_size=128MB
+      -c max_connections=30
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sales}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-sales}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -U ${POSTGRES_USER:-sales}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  redis:
+    image: redis:7-alpine
+    logging: *default-logging
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required} --maxmemory 64mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ---------------------------------------------------------------------------
+  # Application
+  # ---------------------------------------------------------------------------
+  backend:
+    logging: *default-logging
+    restart: unless-stopped
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+      target: prod
+    <<: *backend-env
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  celery-worker:
+    logging: *default-logging
+    restart: unless-stopped
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+      target: prod
+    command: ["celery", "-A", "app.tasks.worker", "worker", "--loglevel=info", "--concurrency=2", "--max-memory-per-child=200000", "-Q", "celery,discovery,enrichment,monitoring,llm,integrations"]
+    <<: *backend-env
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.tasks.worker", "inspect", "ping", "--timeout", "10"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  celery-beat:
+    logging: *default-logging
+    restart: unless-stopped
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+      target: prod
+    command: ["celery", "-A", "app.tasks.worker", "beat", "--loglevel=info"]
+    <<: *backend-env
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'celery.*beat' > /dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  frontend:
+    logging: *default-logging
+    restart: unless-stopped
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+      target: prod
+      args:
+        VITE_API_URL: ""
+    expose:
+      - "80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:80/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
