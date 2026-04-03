@@ -35,19 +35,13 @@ asyncio.run(check())
 
   log "PostgreSQL is ready"
 
-  log "Current migration state:"
-  alembic current || true
-
   log "Applying migrations..."
   alembic upgrade head
-
-  log "Migration state after upgrade:"
-  alembic current
 
   log "Seeding default settings..."
   python -m app.core.seed_defaults
 
-  log "Migrations complete — starting application"
+  log "Startup complete — launching application"
 else
   log "Non-backend service detected ($1) — skipping migrations"
 fi
