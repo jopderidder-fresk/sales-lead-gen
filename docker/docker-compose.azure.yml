@@ -114,14 +114,14 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 30s
+      retries: 10
+      start_period: 180s
     deploy:
       resources:
         limits:
-          memory: 384M
+          memory: 512M
 
   celery-worker:
     logging: *default-logging

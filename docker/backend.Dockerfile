@@ -4,17 +4,24 @@ RUN addgroup --system app && adduser --system --ingroup app app
 
 WORKDIR /app
 
-# Install dependencies first (cached layer)
-COPY backend/pyproject.toml .
-RUN mkdir -p app prompts && pip install --no-cache-dir -e .
+# Install uv for fast dependency management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Copy application source and prompts
+# Install dependencies from lockfile (cached layer — only re-runs when lock/pyproject change)
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN uv export --frozen --no-dev --no-hashes --no-emit-project -o /tmp/requirements.txt && \
+    uv pip install --system --no-cache -r /tmp/requirements.txt && \
+    rm /tmp/requirements.txt
+
+# Copy application source and prompts (found via WORKDIR in sys.path)
 COPY --chown=app:app backend/app ./app
 COPY --chown=app:app backend/prompts ./prompts
 
 # Development target: hot-reload with uvicorn
 FROM base AS dev
-RUN pip install --no-cache-dir -e ".[dev]"
+RUN uv export --frozen --no-hashes --no-emit-project --extra dev -o /tmp/requirements-dev.txt && \
+    uv pip install --system --no-cache -r /tmp/requirements-dev.txt && \
+    rm /tmp/requirements-dev.txt
 COPY --chown=app:app backend/ .
 EXPOSE 8000
 USER app

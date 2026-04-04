@@ -36,10 +36,16 @@ asyncio.run(check())
   log "PostgreSQL is ready"
 
   log "Applying migrations..."
-  alembic upgrade head
+  if ! alembic upgrade head 2>&1; then
+    log "ERROR: Alembic migration failed (see output above)"
+    exit 1
+  fi
 
   log "Seeding default settings..."
-  python -m app.core.seed_defaults
+  if ! python -m app.core.seed_defaults 2>&1; then
+    log "ERROR: Seed defaults failed (see output above)"
+    exit 1
+  fi
 
   log "Startup complete — launching application"
 else
