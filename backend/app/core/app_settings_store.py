@@ -31,7 +31,12 @@ DB_APIFY_API_TOKEN = "apikeys.apify_api_token"
 
 DB_LINKEDIN_INTERVAL_DAYS = "linkedin.interval_days"
 DB_LINKEDIN_DAYS_BACK = "linkedin.days_back"
+DB_LINKEDIN_DAILY_SCRAPE_LIMIT = "linkedin.daily_scrape_limit"
 DB_LINKEDIN_LAST_BATCH_RUN = "linkedin.last_batch_run"
+
+LINKEDIN_DEFAULT_INTERVAL_DAYS = 7
+LINKEDIN_DEFAULT_DAYS_BACK = 7
+LINKEDIN_DEFAULT_DAILY_SCRAPE_LIMIT = 50
 
 # Usage limits
 DB_LIMITS_MAX_COMPANIES_PER_DISCOVERY_RUN = "limits.max_companies_per_discovery_run"

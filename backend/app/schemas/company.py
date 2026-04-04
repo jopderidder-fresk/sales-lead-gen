@@ -117,7 +117,7 @@ class CompanyResponse(BaseModel):
 
 
 class CompanyInfoResponse(BaseModel):
-    summary: str
+    summary: str | None = None
     products_services: str | None = None
     target_market: str | None = None
     technologies: list[str] = []

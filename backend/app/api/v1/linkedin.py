@@ -4,9 +4,13 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.app_settings_store import (
+    DB_LINKEDIN_DAILY_SCRAPE_LIMIT,
     DB_LINKEDIN_DAYS_BACK,
     DB_LINKEDIN_INTERVAL_DAYS,
     DB_LINKEDIN_LAST_BATCH_RUN,
+    LINKEDIN_DEFAULT_DAILY_SCRAPE_LIMIT,
+    LINKEDIN_DEFAULT_DAYS_BACK,
+    LINKEDIN_DEFAULT_INTERVAL_DAYS,
     get_setting,
     is_job_enabled,
     set_job_enabled,
@@ -22,9 +26,6 @@ logger = get_logger(__name__)
 
 router = APIRouter(tags=["settings"])
 
-_DEFAULT_INTERVAL_DAYS = 7
-_DEFAULT_DAYS_BACK = 7
-
 
 @router.get("/settings/linkedin", response_model=LinkedInSettingsResponse)
 async def get_linkedin_settings(
@@ -35,12 +36,14 @@ async def get_linkedin_settings(
     enabled = await is_job_enabled(session, "scrape-linkedin-batch")
     interval_raw = await get_setting(session, DB_LINKEDIN_INTERVAL_DAYS)
     days_back_raw = await get_setting(session, DB_LINKEDIN_DAYS_BACK)
+    limit_raw = await get_setting(session, DB_LINKEDIN_DAILY_SCRAPE_LIMIT)
     last_run = await get_setting(session, DB_LINKEDIN_LAST_BATCH_RUN)
 
     return LinkedInSettingsResponse(
         enabled=enabled,
-        interval_days=int(interval_raw) if interval_raw else _DEFAULT_INTERVAL_DAYS,
-        days_back=int(days_back_raw) if days_back_raw else _DEFAULT_DAYS_BACK,
+        interval_days=int(interval_raw) if interval_raw else LINKEDIN_DEFAULT_INTERVAL_DAYS,
+        days_back=int(days_back_raw) if days_back_raw else LINKEDIN_DEFAULT_DAYS_BACK,
+        daily_scrape_limit=int(limit_raw) if limit_raw else LINKEDIN_DEFAULT_DAILY_SCRAPE_LIMIT,
         last_batch_run=last_run,
     )
 
@@ -60,6 +63,8 @@ async def update_linkedin_settings(
         await set_setting(session, DB_LINKEDIN_INTERVAL_DAYS, str(update_data["interval_days"]))
     if "days_back" in update_data:
         await set_setting(session, DB_LINKEDIN_DAYS_BACK, str(update_data["days_back"]))
+    if "daily_scrape_limit" in update_data:
+        await set_setting(session, DB_LINKEDIN_DAILY_SCRAPE_LIMIT, str(update_data["daily_scrape_limit"]))
 
     logger.info("linkedin.settings_updated", updated_fields=list(update_data.keys()))
 

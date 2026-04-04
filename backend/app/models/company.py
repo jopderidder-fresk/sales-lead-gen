@@ -44,6 +44,7 @@ class Company(Base):
     clickup_status: Mapped[str | None] = mapped_column(String(100))
     monitor: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     monitor_pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    linkedin_last_scraped_at: Mapped[datetime | None] = mapped_column()
     slack_notified_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())

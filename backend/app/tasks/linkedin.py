@@ -1,17 +1,21 @@
 """LinkedIn intelligence Celery tasks.
 
-Batch task that:
-1. Checks interval setting to decide whether to run
-2. Finds companies with linkedin_url set
-3. Scrapes their LinkedIn pages via Apify
-4. Creates Signal records for LLM analysis
-5. The existing process-signal-queue task handles classification & Slack
+Priority-ranked daily rotation batch task that:
+1. Picks the top N companies ordered by ICP score + staleness
+2. Scrapes their LinkedIn pages via Apify
+3. Creates Signal records for LLM analysis
+4. The existing process-signal-queue task handles classification & Slack
+
+High-ICP companies get scraped most frequently, new/never-scraped
+companies bubble up immediately, and low-ICP companies still get
+coverage on a longer cadence — all within a fixed daily budget.
 """
 
 from datetime import UTC, datetime
 
 import structlog
 from sqlalchemy import select
+from sqlalchemy.sql.expression import case, extract, func
 
 from app.core.celery_app import celery_app
 from app.core.config import settings
@@ -23,8 +27,9 @@ from app.tasks.base import BaseTask, check_job_enabled
 
 logger = structlog.get_logger(__name__)
 
-_DEFAULT_INTERVAL_DAYS = 7
-_DEFAULT_DAYS_BACK = 7
+# Priority scoring constants for the daily rotation query
+_NEVER_SCRAPED_STALENESS_DAYS = 999.0
+_ICP_SCORE_DIVISOR = 10.0
 
 
 async def _get_apify_token() -> str:
@@ -35,20 +40,22 @@ async def _get_apify_token() -> str:
 
 
 async def _get_linkedin_settings() -> tuple[int, int]:
-    """Read interval_days and days_back from DB, with defaults."""
+    """Read days_back and daily_scrape_limit from DB, with defaults."""
     from app.core.app_settings_store import (
+        DB_LINKEDIN_DAILY_SCRAPE_LIMIT,
         DB_LINKEDIN_DAYS_BACK,
-        DB_LINKEDIN_INTERVAL_DAYS,
+        LINKEDIN_DEFAULT_DAILY_SCRAPE_LIMIT,
+        LINKEDIN_DEFAULT_DAYS_BACK,
         get_setting,
     )
 
     async with async_session_factory() as session:
-        interval_raw = await get_setting(session, DB_LINKEDIN_INTERVAL_DAYS)
         days_back_raw = await get_setting(session, DB_LINKEDIN_DAYS_BACK)
+        limit_raw = await get_setting(session, DB_LINKEDIN_DAILY_SCRAPE_LIMIT)
 
-    interval_days = int(interval_raw) if interval_raw else _DEFAULT_INTERVAL_DAYS
-    days_back = int(days_back_raw) if days_back_raw else _DEFAULT_DAYS_BACK
-    return interval_days, days_back
+    days_back = int(days_back_raw) if days_back_raw else LINKEDIN_DEFAULT_DAYS_BACK
+    daily_limit = int(limit_raw) if limit_raw else LINKEDIN_DEFAULT_DAILY_SCRAPE_LIMIT
+    return days_back, daily_limit
 
 
 async def _scrape_linkedin_single(company_id: int) -> str:
@@ -57,7 +64,7 @@ async def _scrape_linkedin_single(company_id: int) -> str:
     if not apify_token:
         return "linkedin_scrape: skipped — no Apify API token configured"
 
-    _, days_back = await _get_linkedin_settings()
+    days_back, _ = await _get_linkedin_settings()
 
     service = LinkedInIntelligenceService(apify_token=apify_token)
     try:
@@ -83,47 +90,66 @@ async def _scrape_linkedin_single(company_id: int) -> str:
 
 
 async def _scrape_linkedin_batch() -> str:
-    """Async implementation for LinkedIn batch scrape with dynamic settings."""
+    """Priority-ranked daily rotation batch scrape.
+
+    Instead of scraping all monitored companies on a fixed interval,
+    pick the top N companies each day ordered by:
+      1. ICP score (high-value first)
+      2. Staleness (longest since last scrape, never-scraped first)
+
+    This keeps the daily Apify budget fixed while ensuring high-ICP
+    companies are scraped frequently and new companies are discovered.
+    """
     from app.core.app_settings_store import (
         DB_LINKEDIN_LAST_BATCH_RUN,
-        get_setting,
         set_setting,
     )
 
-    # Read dynamic settings
-    interval_days, days_back = await _get_linkedin_settings()
-
-    # Check if enough time has passed since last run
-    async with async_session_factory() as session:
-        last_run_raw = await get_setting(session, DB_LINKEDIN_LAST_BATCH_RUN)
-
-    if last_run_raw:
-        last_run = datetime.fromisoformat(last_run_raw)
-        elapsed = datetime.now(UTC) - last_run
-        if elapsed.total_seconds() < (interval_days - 0.5) * 86400:
-            return (
-                f"linkedin_batch: skipped — last ran {elapsed.days}d ago, "
-                f"interval is {interval_days}d"
-            )
+    days_back, daily_limit = await _get_linkedin_settings()
 
     apify_token = await _get_apify_token()
     if not apify_token:
         return "linkedin_batch: skipped — no Apify API token configured"
 
-    # Find monitored companies with LinkedIn URLs
+    # Select top N companies by weighted priority score:
+    #   priority = staleness_days + (icp_score / 10)
+    #
+    # This means a company with ICP 100 scraped 1 day ago (priority 11)
+    # beats a company with ICP 0 scraped 10 days ago (priority 10).
+    # Never-scraped companies get staleness=999, so they always go first
+    # (with higher ICP winning among never-scraped).
+    staleness_days = case(
+        (Company.linkedin_last_scraped_at.is_(None), _NEVER_SCRAPED_STALENESS_DAYS),
+        else_=extract("epoch", func.now() - Company.linkedin_last_scraped_at) / 86400.0,
+    )
+    icp_bonus = case(
+        (Company.icp_score.is_(None), 0.0),
+        else_=Company.icp_score / _ICP_SCORE_DIVISOR,
+    )
+    priority_score = staleness_days + icp_bonus
+
     async with async_session_factory() as session:
-        query = select(Company.id).where(
-            Company.linkedin_url.isnot(None),
-            Company.monitor.is_(True),
-            Company.status != CompanyStatus.ARCHIVED,
+        query = (
+            select(Company.id)
+            .where(
+                Company.linkedin_url.isnot(None),
+                Company.status != CompanyStatus.ARCHIVED,
+            )
+            .order_by(priority_score.desc())
+            .limit(daily_limit)
         )
         result = await session.execute(query)
         company_ids = list(result.scalars().all())
 
     if not company_ids:
-        return "linkedin_batch: no monitored companies with LinkedIn URLs to scrape"
+        return "linkedin_batch: no companies with LinkedIn URLs to scrape"
 
-    logger.info("linkedin.batch.start", count=len(company_ids), days_back=days_back)
+    logger.info(
+        "linkedin.batch.start",
+        count=len(company_ids),
+        daily_limit=daily_limit,
+        days_back=days_back,
+    )
 
     service = LinkedInIntelligenceService(apify_token=apify_token)
     all_signal_ids: list[int] = []
@@ -147,7 +173,7 @@ async def _scrape_linkedin_batch() -> str:
 
         total_signals = sum(r.signals_created for r in results)
         errors = sum(1 for r in results if r.error)
-        summary = f"companies={len(results)} signals={total_signals} errors={errors}"
+        summary = f"companies={len(results)} signals={total_signals} errors={errors} daily_limit={daily_limit}"
         logger.info("linkedin.batch.done", summary=summary)
 
         # Record successful run timestamp
@@ -210,10 +236,11 @@ def scrape_company_linkedin_safe(company_id: int) -> str:
     soft_time_limit=7200,  # 120 min soft limit
 )
 def scrape_linkedin_batch() -> str:
-    """LinkedIn batch scrape for all companies with LinkedIn URLs.
+    """Priority-ranked daily LinkedIn batch scrape.
 
-    Scheduled daily via Celery Beat; self-throttles based on
-    linkedin.interval_days setting (default: every 7 days).
+    Runs daily via Celery Beat. Picks the top N companies (daily_scrape_limit,
+    default 50) ordered by staleness and ICP score. High-ICP companies get
+    scraped most frequently; new/never-scraped companies bubble up immediately.
     """
     if not check_job_enabled("scrape-linkedin-batch"):
         return "scrape-linkedin-batch: skipped — job disabled"
