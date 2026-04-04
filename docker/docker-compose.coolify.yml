@@ -81,6 +81,7 @@ services:
       context: .
       dockerfile: docker/backend.Dockerfile
       target: prod
+    image: sales-backend:local
     <<: *backend-env
     expose:
       - "8000"
@@ -103,10 +104,7 @@ services:
   celery-worker:
     logging: *default-logging
     restart: unless-stopped
-    build:
-      context: .
-      dockerfile: docker/backend.Dockerfile
-      target: prod
+    image: sales-backend:local
     command: ["celery", "-A", "app.tasks.worker", "worker", "--loglevel=info", "--concurrency=2", "--max-memory-per-child=200000", "-Q", "celery,discovery,enrichment,monitoring,llm,integrations"]
     <<: *backend-env
     depends_on:
@@ -126,10 +124,7 @@ services:
   celery-beat:
     logging: *default-logging
     restart: unless-stopped
-    build:
-      context: .
-      dockerfile: docker/backend.Dockerfile
-      target: prod
+    image: sales-backend:local
     command: ["celery", "-A", "app.tasks.worker", "beat", "--loglevel=info"]
     <<: *backend-env
     depends_on:
