@@ -150,7 +150,7 @@ class LinkedInIntelligenceService:
             )
             result.contacts_scraped = contacts_scraped
 
-        company.linkedin_last_scraped_at = datetime.now(UTC)
+        company.linkedin_last_scraped_at = datetime.utcnow()
         await session.commit()
 
         logger.info("linkedin.process_company.done", **{
