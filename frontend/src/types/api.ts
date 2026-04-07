@@ -693,6 +693,7 @@ export interface LinkedInSettingsResponse {
   enabled: boolean;
   interval_days: number;
   days_back: number;
+  daily_scrape_limit: number;
   last_batch_run: string | null;
 }
 
@@ -700,6 +701,7 @@ export interface LinkedInSettingsUpdate {
   enabled?: boolean;
   interval_days?: number;
   days_back?: number;
+  daily_scrape_limit?: number;
 }
 
 export interface UsageLimitsResponse {

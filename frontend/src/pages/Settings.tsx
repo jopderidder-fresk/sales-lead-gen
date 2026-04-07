@@ -1002,7 +1002,7 @@ function LinkedInCard() {
   const { isAdmin } = useAuth();
   const { data, isLoading, error } = useLinkedInSettings();
   const update = useUpdateLinkedInSettings();
-  const [form, setForm] = useState({ interval_days: 7, days_back: 7 });
+  const [form, setForm] = useState({ interval_days: 7, days_back: 7, daily_scrape_limit: 50 });
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -1010,6 +1010,7 @@ function LinkedInCard() {
       setForm({
         interval_days: data.interval_days,
         days_back: data.days_back,
+        daily_scrape_limit: data.daily_scrape_limit,
       });
     }
   }, [data]);
@@ -1092,6 +1093,23 @@ function LinkedInCard() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Companies per Daily Run</label>
+          <input
+            type="number"
+            className={inputClass}
+            min={1}
+            max={500}
+            value={form.daily_scrape_limit}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              if (!isNaN(v)) setForm({ ...form, daily_scrape_limit: v });
+            }}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Max companies to scrape per daily LinkedIn batch (currently {data?.daily_scrape_limit ?? 50}).
+          </p>
+        </div>
         <div>
           <label className={labelClass}>Run Every N Days</label>
           <input
