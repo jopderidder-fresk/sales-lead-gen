@@ -37,7 +37,7 @@ services:
       -c work_mem=4MB
       -c maintenance_work_mem=32MB
       -c effective_cache_size=128MB
-      -c max_connections=30
+      -c max_connections=60
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-sales}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
@@ -91,8 +91,8 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 60s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/deep')"]
+      interval: 30s
       timeout: 10s
       retries: 5
       start_period: 180s
@@ -105,7 +105,7 @@ services:
     logging: *default-logging
     restart: unless-stopped
     image: sales-backend:local
-    command: ["celery", "-A", "app.tasks.worker", "worker", "--loglevel=info", "--concurrency=2", "--max-memory-per-child=200000", "-Q", "celery,discovery,enrichment,monitoring,llm,integrations"]
+    command: ["celery", "-A", "app.tasks.worker", "worker", "--loglevel=info", "--concurrency=4", "--max-memory-per-child=200000", "-Q", "celery,discovery,enrichment,monitoring,llm,integrations"]
     <<: *backend-env
     depends_on:
       backend:
@@ -119,7 +119,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 1024M
 
   celery-beat:
     logging: *default-logging

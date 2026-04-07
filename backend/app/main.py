@@ -11,7 +11,7 @@ from starlette.middleware.cors import CORSMiddleware
 from app.api.v1.auth import limiter
 from app.api.v1.router import router as v1_router
 from app.core.config import settings
-from app.core.database import engine
+from app.core.database import async_session_factory, engine
 from app.core.exceptions import (
     http_exception_handler,
     internal_error_handler,
@@ -81,4 +81,16 @@ app.include_router(v1_router)
 
 @app.get("/health")
 async def health() -> dict[str, str]:
+    return {"status": "ok", "version": settings.app_version}
+
+
+@app.get("/health/deep")
+async def health_deep() -> dict[str, str]:
+    """Check database and Redis connectivity."""
+    from sqlalchemy import text
+
+    async with async_session_factory() as session:
+        await session.execute(text("SELECT 1"))
+
+    await redis_client.ping()
     return {"status": "ok", "version": settings.app_version}
