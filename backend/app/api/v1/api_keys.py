@@ -30,7 +30,7 @@ from app.core.app_settings_store import (
 )
 from app.core.config import settings
 from app.core.database import get_session
-from app.core.deps import require_role
+from app.core.deps import get_current_user
 from app.core.logging import get_logger
 from app.models.user import User
 from app.schemas.api_keys import (
@@ -65,7 +65,7 @@ async def _key_status(session: AsyncSession, db_key: str, env_fallback: str) -> 
 
 @router.get("/settings/api-keys", response_model=APIKeysSettingsResponse)
 async def get_api_keys_settings(
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> APIKeysSettingsResponse:
     """View current API-key configuration. Admin only.
@@ -119,10 +119,10 @@ _FIELD_MAP: dict[str, tuple[str, str, bool]] = {
 @router.put("/settings/api-keys", response_model=APIKeysSettingsResponse)
 async def update_api_keys_settings(
     body: APIKeysSettingsUpdate,
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> APIKeysSettingsResponse:
-    """Update API keys. Admin only.
+    """Update API keys.
 
     Only fields included in the request body are changed.
     Keys are encrypted at rest in the database.

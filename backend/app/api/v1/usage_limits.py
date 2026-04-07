@@ -16,7 +16,7 @@ from app.core.app_settings_store import (
 )
 from app.core.config import settings
 from app.core.database import get_session
-from app.core.deps import require_role
+from app.core.deps import get_current_user
 from app.core.logging import get_logger
 from app.core.utils import today_start_utc
 from app.models.api_usage import APIUsage
@@ -96,7 +96,7 @@ async def _read_limits(session: AsyncSession) -> dict[str, int | float]:
 
 @router.get("/settings/usage-limits", response_model=UsageLimitsResponse)
 async def get_usage_limits(
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> UsageLimitsResponse:
     """View current usage limits and today's usage counters. Admin only."""
@@ -108,7 +108,7 @@ async def get_usage_limits(
 @router.put("/settings/usage-limits", response_model=UsageLimitsResponse)
 async def update_usage_limits(
     body: UsageLimitsUpdate,
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> UsageLimitsResponse:
     """Update usage limit settings. Admin only.

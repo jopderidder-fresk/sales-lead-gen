@@ -26,8 +26,20 @@ import {
   Send,
   Shield,
 } from "lucide-react";
-import { useAuth } from "@/context/auth";
+import { isAxiosError } from "axios";
 import { useEffect, useState } from "react";
+
+// ── Helpers ───────────────────────────────────────────────────────
+
+function apiErrorMessage(error: unknown, fallback: string): string {
+  if (isAxiosError(error)) {
+    const detail = error.response?.data?.detail;
+    if (typeof detail === "string") return detail;
+    if (error.response?.status === 403) return "Insufficient permissions";
+    if (error.response?.status) return `Server error (${error.response.status})`;
+  }
+  return fallback;
+}
 
 // ── Shared styles ──────────────────────────────────────────────────
 
@@ -181,7 +193,7 @@ function APIKeysCard() {
       <div className={cardClass}>
         <div className="flex items-center gap-2 text-destructive">
           <AlertTriangle className="h-4 w-4" />
-          Failed to load API key settings
+          Failed to load API key settings: {apiErrorMessage(error, "Unknown error")}
         </div>
       </div>
     );
@@ -344,7 +356,7 @@ function APIKeysCard() {
         )}
         {update.isError && (
           <span className="text-sm text-destructive">
-            Failed to save — check your permissions.
+            Failed to save: {apiErrorMessage(update.error, "Unknown error")}
           </span>
         )}
       </div>
@@ -456,7 +468,7 @@ function CRMCard() {
       <div className={cardClass}>
         <div className="flex items-center gap-2 text-destructive">
           <AlertTriangle className="h-4 w-4" />
-          Failed to load CRM settings
+          Failed to load CRM settings: {apiErrorMessage(error, "Unknown error")}
         </div>
       </div>
     );
@@ -684,7 +696,7 @@ function CRMCard() {
         )}
         {update.isError && (
           <span className="text-sm text-destructive">
-            Failed to save — check your permissions.
+            Failed to save: {apiErrorMessage(update.error, "Unknown error")}
           </span>
         )}
       </div>
@@ -755,7 +767,7 @@ function SlackCard() {
       <div className={cardClass}>
         <div className="flex items-center gap-2 text-destructive">
           <AlertTriangle className="h-4 w-4" />
-          Failed to load Slack settings
+          Failed to load Slack settings: {apiErrorMessage(error, "Unknown error")}
         </div>
       </div>
     );
@@ -881,7 +893,7 @@ function SlackCard() {
         )}
         {update.isError && (
           <span className="text-sm text-destructive">
-            Failed to save — check your permissions.
+            Failed to save: {apiErrorMessage(update.error, "Unknown error")}
           </span>
         )}
         {testSlack.isSuccess && (
@@ -904,11 +916,8 @@ function SlackCard() {
 // ── Job Schedule Card ──────────────────────────────────────────────
 
 function JobScheduleCard() {
-  const { isAdmin } = useAuth();
   const { data, isLoading, error } = useJobs();
   const toggle = useToggleJob();
-
-  if (!isAdmin) return null;
 
   if (isLoading) {
     return (
@@ -926,7 +935,7 @@ function JobScheduleCard() {
       <div className={cardClass}>
         <div className="flex items-center gap-2 text-destructive">
           <AlertTriangle className="h-4 w-4" />
-          Failed to load job schedule
+          Failed to load job schedule: {apiErrorMessage(error, "Unknown error")}
         </div>
       </div>
     );
@@ -999,7 +1008,6 @@ function JobScheduleCard() {
 // ── LinkedIn Card ─────────────────────────────────────────────────
 
 function LinkedInCard() {
-  const { isAdmin } = useAuth();
   const { data, isLoading, error } = useLinkedInSettings();
   const update = useUpdateLinkedInSettings();
   const [form, setForm] = useState({ interval_days: 7, days_back: 7, daily_scrape_limit: 50 });
@@ -1014,8 +1022,6 @@ function LinkedInCard() {
       });
     }
   }, [data]);
-
-  if (!isAdmin) return null;
 
   if (isLoading) {
     return (
@@ -1033,7 +1039,7 @@ function LinkedInCard() {
       <div className={cardClass}>
         <div className="flex items-center gap-2 text-destructive">
           <AlertTriangle className="h-4 w-4" />
-          Failed to load LinkedIn settings
+          Failed to load LinkedIn settings: {apiErrorMessage(error, "Unknown error")}
         </div>
       </div>
     );
@@ -1170,7 +1176,7 @@ function LinkedInCard() {
         )}
         {update.isError && (
           <span className="text-sm text-destructive">
-            Failed to save — check your permissions.
+            Failed to save: {apiErrorMessage(update.error, "Unknown error")}
           </span>
         )}
       </div>
@@ -1208,8 +1214,7 @@ function StatusBadge({
 // ── Usage Limits Card ──────────────────────────────────────────────
 
 function UsageLimitsCard() {
-  const { isAdmin } = useAuth();
-  const { data, isLoading, error } = useUsageLimits({ enabled: isAdmin });
+  const { data, isLoading, error } = useUsageLimits();
   const update = useUpdateUsageLimits();
 
   const [form, setForm] = useState({
@@ -1245,8 +1250,6 @@ function UsageLimitsCard() {
     });
   }
 
-  if (!isAdmin) return null;
-
   if (isLoading) {
     return (
       <div className={cardClass}>
@@ -1263,7 +1266,7 @@ function UsageLimitsCard() {
       <div className={cardClass}>
         <div className="flex items-center gap-2 text-destructive">
           <AlertTriangle className="h-4 w-4" />
-          Failed to load usage limits
+          Failed to load usage limits: {apiErrorMessage(error, "Unknown error")}
         </div>
       </div>
     );
@@ -1482,7 +1485,7 @@ function UsageLimitsCard() {
         )}
         {update.isError && (
           <span className="text-sm text-destructive">
-            Failed to save — check your permissions.
+            Failed to save: {apiErrorMessage(update.error, "Unknown error")}
           </span>
         )}
       </div>

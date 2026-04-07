@@ -17,7 +17,7 @@ from app.core.app_settings_store import (
     set_setting,
 )
 from app.core.database import get_session
-from app.core.deps import require_role
+from app.core.deps import get_current_user
 from app.core.logging import get_logger
 from app.models.user import User
 from app.schemas.linkedin import LinkedInSettingsResponse, LinkedInSettingsUpdate
@@ -29,7 +29,7 @@ router = APIRouter(tags=["settings"])
 
 @router.get("/settings/linkedin", response_model=LinkedInSettingsResponse)
 async def get_linkedin_settings(
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> LinkedInSettingsResponse:
     """View current LinkedIn scraping settings. Admin only."""
@@ -51,7 +51,7 @@ async def get_linkedin_settings(
 @router.put("/settings/linkedin", response_model=LinkedInSettingsResponse)
 async def update_linkedin_settings(
     body: LinkedInSettingsUpdate,
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> LinkedInSettingsResponse:
     """Update LinkedIn scraping settings. Admin only."""

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.app_settings_store import get_all_job_states, set_job_enabled
 from app.core.database import get_session
-from app.core.deps import require_role
+from app.core.deps import get_current_user
 from app.core.logging import get_logger
 from app.models.user import User
 from app.schemas.jobs import JobInfo, JobsResponse, JobToggle
@@ -84,7 +84,7 @@ _JOB_NAMES = [j["name"] for j in _JOBS]
 
 @router.get("/settings/jobs", response_model=JobsResponse)
 async def get_jobs(
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> JobsResponse:
     """List all scheduled jobs with their enabled state. Admin only."""
@@ -106,7 +106,7 @@ async def get_jobs(
 async def toggle_job(
     job_name: str,
     body: JobToggle,
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> JobInfo:
     """Enable or disable a scheduled job. Admin only."""

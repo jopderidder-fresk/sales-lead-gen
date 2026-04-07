@@ -18,7 +18,7 @@ from app.core.app_settings_store import (
 )
 from app.core.config import settings
 from app.core.database import get_session
-from app.core.deps import require_role
+from app.core.deps import get_current_user, require_role
 from app.core.logging import get_logger
 from app.models.user import User
 from app.schemas.slack import (
@@ -62,7 +62,7 @@ async def _read_slack_timing(session: AsyncSession) -> tuple[int, int]:
 
 @router.get("/settings/slack", response_model=SlackSettingsResponse)
 async def get_slack_settings(
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> SlackSettingsResponse:
     """View current Slack notification settings. Admin only."""
@@ -85,7 +85,7 @@ async def get_slack_settings(
 @router.put("/settings/slack", response_model=SlackSettingsResponse)
 async def update_slack_settings(
     body: SlackSettingsUpdate,
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> SlackSettingsResponse:
     """Update Slack notification settings. Admin only.

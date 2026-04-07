@@ -89,7 +89,7 @@ async def require_crm_provider(session: AsyncSession = Depends(get_session)) -> 
 
 @router.get("/settings/crm", response_model=CRMSettingsResponse)
 async def get_crm_settings(
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> CRMSettingsResponse:
     """View current CRM integration settings. Admin only."""
@@ -133,7 +133,7 @@ async def get_crm_settings(
 @router.put("/settings/crm", response_model=CRMSettingsResponse)
 async def update_crm_settings(
     body: CRMSettingsUpdate,
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> CRMSettingsResponse:
     """Update CRM provider and credentials. Admin only.

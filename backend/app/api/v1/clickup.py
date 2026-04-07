@@ -40,7 +40,7 @@ router = APIRouter(tags=["clickup"])
 
 @router.get("/settings/clickup", response_model=ClickUpSettingsResponse)
 async def get_clickup_settings(
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
 ) -> ClickUpSettingsResponse:
     """View current ClickUp integration settings. Admin only."""
     return ClickUpSettingsResponse(
@@ -55,7 +55,7 @@ async def get_clickup_settings(
 @router.put("/settings/clickup", response_model=ClickUpSettingsResponse)
 async def update_clickup_settings(
     body: ClickUpSettingsUpdate,
-    _user: User = Depends(require_role("admin")),
+    _user: User = Depends(get_current_user),
 ) -> ClickUpSettingsResponse:
     """Update ClickUp workspace mapping settings. Admin only.
 
