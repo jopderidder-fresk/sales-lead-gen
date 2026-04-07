@@ -1,5 +1,5 @@
 # =============================================================================
-# Production Docker Compose for Azure VM (B2als_v2 — 2 vCPU, 4 GB RAM)
+# Production Docker Compose for Azure VM (8 GB RAM, 4 GB data disk)
 # Usage: docker compose -f docker/docker-compose.azure.yml up -d --build
 # =============================================================================
 
@@ -113,7 +113,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 10

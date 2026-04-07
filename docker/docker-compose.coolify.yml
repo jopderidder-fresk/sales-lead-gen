@@ -1,5 +1,5 @@
 # =============================================================================
-# Production Docker Compose for Coolify (Azure VM — B2als_v2: 2 vCPU, 4 GB RAM)
+# Production Docker Compose for Coolify (Azure VM — 8 GB RAM, 4 GB data disk)
 # Coolify: set Docker Compose Location to "docker/docker-compose.coolify.yml"
 #
 # Routing: Traefik (via labels) → frontend nginx (port 80) → proxies /api to backend
@@ -91,7 +91,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -139,7 +139,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 128M
 
   frontend:
     logging: *default-logging

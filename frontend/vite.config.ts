@@ -10,6 +10,19 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    sourcemap: false,
+    rollupOptions: {
+      maxParallelFileOps: 5,
+      output: {
+        manualChunks: {
+          "react-vendor": ["react", "react-dom", "react-router-dom"],
+          "chart-vendor": ["recharts"],
+          "query-vendor": ["@tanstack/react-query"],
+        },
+      },
+    },
+  },
   test: {
     globals: true,
     environment: "jsdom",

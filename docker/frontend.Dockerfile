@@ -1,6 +1,8 @@
-FROM node:20-slim AS base
+FROM node:20-alpine AS base
 
-RUN npm install -g pnpm
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
 
@@ -19,6 +21,7 @@ CMD ["pnpm", "exec", "vite", "--host", "0.0.0.0"]
 FROM base AS build
 ARG VITE_API_URL=""
 ENV VITE_API_URL=${VITE_API_URL}
+ENV NODE_OPTIONS="--max-old-space-size=1024"
 RUN pnpm run build
 
 FROM nginx:alpine AS prod
