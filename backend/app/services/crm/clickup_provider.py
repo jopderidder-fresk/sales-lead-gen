@@ -18,7 +18,7 @@ from app.models.company import Company
 from app.models.contact import Contact
 from app.models.crm_integration import CRMIntegration
 from app.models.signal import Signal
-from app.services.api.clickup import ClickUpClient, ClickUpNotFoundError
+from app.services.api.clickup import ClickUpClient, ClickUpNotFoundError, ClickUpTask
 from app.services.crm.protocol import CRMSyncResult, CRMTask
 
 logger = get_logger(__name__)
@@ -81,6 +81,18 @@ class ClickUpCRMProvider:
 
         if integration:
             return await self._update_task(session, company, integration)
+
+        existing = await self._find_existing_task(company.domain)
+        match_strategy = "domain"
+        if not existing:
+            existing = await self._find_existing_task_by_name(session, company)
+            match_strategy = "name"
+        if existing:
+            await self._link_existing(
+                session, company, existing, match_strategy=match_strategy,
+            )
+            return self._to_crm_task(existing)
+
         return await self._create_task(session, company)
 
     async def sync_status(self, session: AsyncSession, company_id: int) -> CRMTask | None:
@@ -117,13 +129,7 @@ class ClickUpCRMProvider:
                 new_status=task.status,
             )
 
-        return CRMTask(
-            id=task.id,
-            name=task.name,
-            status=task.status,
-            url=task.url,
-            provider=self.provider_name,
-        )
+        return self._to_crm_task(task)
 
     async def get_task(self, session: AsyncSession, company_id: int) -> CRMTask | None:
         integration = await self._get_integration(session, company_id)
@@ -135,13 +141,7 @@ class ClickUpCRMProvider:
         except ClickUpNotFoundError:
             return None
 
-        return CRMTask(
-            id=task.id,
-            name=task.name,
-            status=task.status,
-            url=task.url,
-            provider=self.provider_name,
-        )
+        return self._to_crm_task(task)
 
     async def sync_qualified_companies(self, session: AsyncSession) -> CRMSyncResult:
         result = CRMSyncResult()
@@ -152,6 +152,9 @@ class ClickUpCRMProvider:
         )
         companies = (await session.execute(stmt)).scalars().all()
 
+        # Pre-fetch all ClickUp tasks once so name-based dedup is O(1) per company
+        task_name_cache = await self._build_task_name_cache()
+
         for company in companies:
             try:
                 integration = await self._get_integration(session, company.id)
@@ -159,10 +162,19 @@ class ClickUpCRMProvider:
                     task = await self._update_task(session, company, integration)
                     result.updated.append((company.id, task.id))
                 else:
-                    # Check for existing task by domain (deduplication)
                     existing = await self._find_existing_task(company.domain)
+                    match_strategy = "domain"
+                    if not existing:
+                        existing = await self._find_existing_task_by_name(
+                            session, company,
+                            task_name_cache=task_name_cache,
+                        )
+                        match_strategy = "name"
                     if existing:
-                        await self._link_existing(session, company, existing)
+                        await self._link_existing(
+                            session, company, existing,
+                            match_strategy=match_strategy,
+                        )
                         result.skipped.append(company.id)
                     else:
                         task = await self._create_task(session, company)
@@ -181,6 +193,15 @@ class ClickUpCRMProvider:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _to_crm_task(self, task: ClickUpTask) -> CRMTask:
+        return CRMTask(
+            id=task.id,
+            name=task.name,
+            status=task.status,
+            url=task.url,
+            provider=self.provider_name,
+        )
 
     async def _load_company(self, session: AsyncSession, company_id: int) -> Company | None:
         stmt = select(Company).where(Company.id == company_id)
@@ -237,13 +258,7 @@ class ClickUpCRMProvider:
             task_id=task.id,
         )
 
-        return CRMTask(
-            id=task.id,
-            name=task.name,
-            status=task.status,
-            url=task.url,
-            provider=self.provider_name,
-        )
+        return self._to_crm_task(task)
 
     async def _update_task(
         self, session: AsyncSession, company: Company, integration: CRMIntegration,
@@ -276,20 +291,15 @@ class ClickUpCRMProvider:
             task_id=task.id,
         )
 
-        return CRMTask(
-            id=task.id,
-            name=task.name,
-            status=task.status,
-            url=task.url,
-            provider=self.provider_name,
-        )
+        return self._to_crm_task(task)
 
     async def _link_existing(
-        self, session: AsyncSession, company: Company, task: Any,
+        self, session: AsyncSession, company: Company, task: ClickUpTask,
+        *, match_strategy: str = "",
     ) -> None:
         integration = CRMIntegration(
             company_id=company.id,
-            provider="clickup",
+            provider=self.provider_name,
             external_id=task.id,
             external_url=task.url,
             external_status=task.status,
@@ -302,17 +312,65 @@ class ClickUpCRMProvider:
         await session.commit()
         logger.info(
             "crm.found_existing",
-            provider="clickup",
+            provider=self.provider_name,
             company_id=company.id,
             task_id=task.id,
+            match_strategy=match_strategy,
         )
 
-    async def _find_existing_task(self, domain: str) -> Any | None:
+    async def _build_task_name_cache(self) -> dict[str, ClickUpTask]:
+        """Fetch all tasks from the ClickUp list into a name-keyed lookup."""
+        cache: dict[str, ClickUpTask] = {}
+        page = 0
+        while True:
+            task_list = await self._client.list_tasks(page=page)
+            for task in task_list.tasks:
+                cache.setdefault(task.name.lower(), task)
+            if len(task_list.tasks) < 100:
+                break
+            page += 1
+        return cache
+
+    async def _find_existing_task(self, domain: str) -> ClickUpTask | None:
         if not self._domain_field_id:
             return None
         return await self._client.find_task_by_custom_field(
             field_id=self._domain_field_id, value=domain,
         )
+
+    async def _find_existing_task_by_name(
+        self,
+        session: AsyncSession,
+        company: Company,
+        *,
+        task_name_cache: dict[str, ClickUpTask] | None = None,
+    ) -> ClickUpTask | None:
+        """Check for an existing ClickUp task with the same name.
+
+        First checks our DB for another company with the same name that
+        already has a CRM integration.  Falls back to searching the ClickUp
+        list by task name (or the pre-fetched cache when provided).
+        """
+        stmt = (
+            select(CRMIntegration)
+            .join(Company, CRMIntegration.company_id == Company.id)
+            .where(
+                Company.name == company.name,
+                CRMIntegration.provider == self.provider_name,
+                CRMIntegration.company_id != company.id,
+            )
+            .limit(1)
+        )
+        existing_integration = (await session.execute(stmt)).scalar_one_or_none()
+        if existing_integration:
+            try:
+                return await self._client.get_task(existing_integration.external_id)
+            except ClickUpNotFoundError:
+                pass  # task was deleted in ClickUp, continue
+
+        if task_name_cache is not None:
+            return task_name_cache.get(company.name.lower())
+        return await self._client.find_task_by_name(company.name)
 
     async def _get_primary_contact(self, session: AsyncSession, company_id: int) -> Contact | None:
         stmt = (
@@ -458,7 +516,7 @@ class ClickUpCRMProvider:
             contact.clickup_task_url = None
             await self._create_person_task(contact)
 
-    async def _find_existing_person(self, contact: Contact) -> Any | None:
+    async def _find_existing_person(self, contact: Contact) -> ClickUpTask | None:
         """Deduplicate by email in the person list."""
         if not self._person_email_field_id or not contact.email:
             return None

@@ -340,7 +340,7 @@ export default function Companies() {
     [urlPage, urlLimit, urlStatus, urlIndustry, urlMinScore, urlMonitor, urlSearch, urlAddedAfter, urlAddedBefore, urlSort, urlOrder],
   );
 
-  const { data, isLoading, isFetching, isError } = useCompanies(queryParams);
+  const { data, isLoading, isFetching, isError, isPlaceholderData } = useCompanies(queryParams);
   const updateCompany = useUpdateCompany();
   const createCompany = useCreateCompany();
   const importCompanies = useImportCompanies();
@@ -693,7 +693,7 @@ export default function Companies() {
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
+          <tbody className={cn("divide-y divide-border", isPlaceholderData && "opacity-50 pointer-events-none")}>
             {isLoading ? (
               <TableSkeleton rows={urlLimit > 10 ? 10 : urlLimit} />
             ) : isError ? (

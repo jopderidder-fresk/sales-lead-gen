@@ -64,6 +64,8 @@ class Company(Base):
         Index("ix_companies_domain", "domain"),
         Index("ix_companies_monitor", "monitor"),
         Index("uq_companies_name_domain", "name", "domain", unique=True),
+        Index("ix_companies_name_trgm", "name", postgresql_using="gin", postgresql_ops={"name": "gin_trgm_ops"}),
+        Index("ix_companies_domain_trgm", "domain", postgresql_using="gin", postgresql_ops={"domain": "gin_trgm_ops"}),
     )
 
     def __repr__(self) -> str:

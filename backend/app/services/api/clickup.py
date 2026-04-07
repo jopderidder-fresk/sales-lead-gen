@@ -110,6 +110,21 @@ class ClickUpClient(BaseAPIClient):
         return super()._check_response(response)
 
     # ------------------------------------------------------------------
+    # Parsing
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _parse_task(data: dict[str, Any]) -> ClickUpTask:
+        """Build a ClickUpTask from a raw API response dict."""
+        return ClickUpTask(
+            id=data["id"],
+            name=data["name"],
+            status=data.get("status", {}).get("status"),
+            url=data.get("url"),
+            custom_fields=data.get("custom_fields", []),
+        )
+
+    # ------------------------------------------------------------------
     # Task CRUD
     # ------------------------------------------------------------------
 
@@ -157,13 +172,7 @@ class ClickUpClient(BaseAPIClient):
             cost_estimate=Decimal("0.00"),
         )
         data = response.json()
-        return ClickUpTask(
-            id=data["id"],
-            name=data["name"],
-            status=data.get("status", {}).get("status"),
-            url=data.get("url"),
-            custom_fields=data.get("custom_fields", []),
-        )
+        return self._parse_task(data)
 
     async def update_task(
         self,
@@ -207,13 +216,7 @@ class ClickUpClient(BaseAPIClient):
             cost_estimate=Decimal("0.00"),
         )
         data = response.json()
-        return ClickUpTask(
-            id=data["id"],
-            name=data["name"],
-            status=data.get("status", {}).get("status"),
-            url=data.get("url"),
-            custom_fields=data.get("custom_fields", []),
-        )
+        return self._parse_task(data)
 
     async def get_task(self, task_id: str) -> ClickUpTask:
         """Retrieve a single task by ID.
@@ -230,13 +233,7 @@ class ClickUpClient(BaseAPIClient):
             cost_estimate=Decimal("0.00"),
         )
         data = response.json()
-        return ClickUpTask(
-            id=data["id"],
-            name=data["name"],
-            status=data.get("status", {}).get("status"),
-            url=data.get("url"),
-            custom_fields=data.get("custom_fields", []),
-        )
+        return self._parse_task(data)
 
     async def add_comment(self, task_id: str, comment_text: str) -> ClickUpComment:
         """Add a comment to a task.
@@ -323,14 +320,52 @@ class ClickUpClient(BaseAPIClient):
         if not tasks:
             return None
 
-        t = tasks[0]
-        return ClickUpTask(
-            id=t["id"],
-            name=t["name"],
-            status=t.get("status", {}).get("status"),
-            url=t.get("url"),
-            custom_fields=t.get("custom_fields", []),
-        )
+        return self._parse_task(tasks[0])
+
+    async def find_task_by_name(
+        self,
+        name: str,
+        *,
+        list_id: str | None = None,
+        max_pages: int = 50,
+    ) -> ClickUpTask | None:
+        """Search for a task by exact name in the given list.
+
+        Pages through tasks and returns the first match, or None.
+
+        Args:
+            name: Task name to match (case-insensitive).
+            list_id: The list to search in (falls back to self.list_id).
+            max_pages: Safety cap on pages to scan (default 50 = 5 000 tasks).
+
+        Returns:
+            The matching ``ClickUpTask`` or ``None``.
+        """
+        target_list = list_id or self.list_id
+        if not target_list:
+            raise ValueError("list_id is required to search tasks")
+
+        name_lower = name.lower()
+        for page in range(max_pages):
+            response = await self.get(
+                f"/list/{target_list}/task",
+                params={"page": str(page)},
+                credits_used=1.0,
+                cost_estimate=Decimal("0.00"),
+            )
+            data = response.json()
+            tasks = data.get("tasks", [])
+            if not tasks:
+                return None
+
+            for t in tasks:
+                if t.get("name", "").lower() == name_lower:
+                    return self._parse_task(t)
+
+            # ClickUp returns up to 100 tasks per page
+            if len(tasks) < 100:
+                return None
+        return None
 
     async def list_tasks(
         self,
@@ -358,14 +393,5 @@ class ClickUpClient(BaseAPIClient):
             cost_estimate=Decimal("0.00"),
         )
         data = response.json()
-        tasks = [
-            ClickUpTask(
-                id=t["id"],
-                name=t["name"],
-                status=t.get("status", {}).get("status"),
-                url=t.get("url"),
-                custom_fields=t.get("custom_fields", []),
-            )
-            for t in data.get("tasks", [])
-        ]
+        tasks = [self._parse_task(t) for t in data.get("tasks", [])]
         return ClickUpTaskList(tasks=tasks)

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import api from "./api";
 
 export type {
@@ -29,6 +29,7 @@ const keys = {
 export function useCompanies(params: CompanyListParams) {
   return useQuery({
     queryKey: keys.list(params),
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const query: Record<string, string> = {};
       if (params.offset != null) query.offset = String(params.offset);
