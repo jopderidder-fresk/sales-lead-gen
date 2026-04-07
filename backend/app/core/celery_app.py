@@ -113,11 +113,8 @@ celery_app.conf.update(
             "schedule": crontab(hour=1, minute=0, day_of_week="sunday"),  # Weekly Sun 01:00 NL time
             "options": {"queue": "discovery"},
         },
-        "sync-to-crm": {
-            "task": "app.tasks.integrations.sync_to_crm",
-            "schedule": crontab(hour=9, minute=0),  # Daily 09:00 NL time
-            "options": {"queue": "integrations"},
-        },
+        # "sync-to-crm" removed — companies should only be pushed to
+        # ClickUp manually via the API endpoint.
         "slack-daily-digest": {
             "task": "app.tasks.integrations.slack_daily_digest",
             "schedule": crontab(hour=9, minute=0),  # Daily 09:00 NL time

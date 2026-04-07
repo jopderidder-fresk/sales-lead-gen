@@ -82,6 +82,16 @@ async def update_profile(
         profile_id=updated.id,
         updated_by=user.username,
     )
+
+    # Recalculate scores if the updated profile is the active one
+    if updated.is_active:
+        from app.tasks.lead_scoring import recalculate_all_lead_scores
+
+        try:
+            recalculate_all_lead_scores.delay()
+        except Exception:
+            logger.warning("icp.score_recalc_trigger_failed")
+
     return ICPProfileResponse.model_validate(updated)
 
 
@@ -103,6 +113,15 @@ async def activate_profile(
         profile_id=activated.id,
         activated_by=user.username,
     )
+
+    # Trigger score recalculation so ICP scores reflect the new active profile
+    from app.tasks.lead_scoring import recalculate_all_lead_scores
+
+    try:
+        recalculate_all_lead_scores.delay()
+    except Exception:
+        logger.warning("icp.score_recalc_trigger_failed")
+
     return ICPProfileResponse.model_validate(activated)
 
 

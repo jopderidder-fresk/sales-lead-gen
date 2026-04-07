@@ -111,8 +111,8 @@ class ActionOrchestrator:
         elif action == SignalAction.IGNORE:
             self._record_ignore(signal, session, result)
 
-        # Send a Slack notification for every real signal (all except IGNORE)
-        if action != SignalAction.IGNORE and self._slack:
+        # Send an immediate Slack notification only for high-scoring signals
+        if action == SignalAction.NOTIFY_IMMEDIATE and self._slack:
             await self._send_signal_notification(signal, session, result)
 
         signal.action_executed_at = utcnow()
@@ -136,11 +136,12 @@ class ActionOrchestrator:
         session: AsyncSession,
         result: ActionResult,
     ) -> None:
-        """Push to CRM for high-scoring signals. Slack notification is sent separately."""
-        company = signal.company
+        """Handle high-scoring signals. Slack notification is sent separately.
 
-        if self._crm:
-            await self._push_to_crm(signal, company, session, result)
+        CRM push is intentionally skipped here — companies should only be
+        pushed to ClickUp manually via the API endpoint.
+        """
+        pass
 
     async def _dispatch_notify_digest(
         self,
@@ -334,7 +335,7 @@ class ActionOrchestrator:
             .where(
                 Signal.company_id == signal.company_id,
                 Signal.is_processed.is_(True),
-                Signal.action_taken != SignalAction.IGNORE,
+                Signal.action_taken == SignalAction.NOTIFY_IMMEDIATE,
                 Signal.action_executed_at.is_(None),
             )
             .order_by(Signal.relevance_score.desc().nulls_last())

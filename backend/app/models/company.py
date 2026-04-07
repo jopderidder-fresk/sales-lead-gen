@@ -58,6 +58,7 @@ class Company(Base):
 
     __table_args__ = (
         Index("ix_companies_status", "status"),
+        Index("ix_companies_icp_score", "icp_score"),
         Index("ix_companies_lead_score", "lead_score"),
         Index("ix_companies_kvk_number", "kvk_number"),
         Index("ix_companies_domain", "domain"),
