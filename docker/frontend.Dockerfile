@@ -21,7 +21,7 @@ CMD ["pnpm", "exec", "vite", "--host", "0.0.0.0"]
 FROM base AS build
 ARG VITE_API_URL=""
 ENV VITE_API_URL=${VITE_API_URL}
-ENV NODE_OPTIONS="--max-old-space-size=1024"
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN pnpm run build
 
 FROM nginx:alpine AS prod
