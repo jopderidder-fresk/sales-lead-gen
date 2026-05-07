@@ -44,6 +44,7 @@ _PREVIEW_PROMPTS = {
     "action_recommendation",
     "company_extraction",
     "contact_extraction",
+    "contact_finder",
     "company_profile",
 }
 
@@ -154,6 +155,22 @@ async def preview_prompt(
         "contact_extraction": (
             manager.build_contact_extraction,
             {"page_content": sample_content},
+        ),
+        "contact_finder": (
+            manager.build_contact_finder,
+            {
+                "company": {
+                    "name": "Acme BV",
+                    "domain": "acme.nl",
+                    "industry": "Field service",
+                    "city": "Utrecht",
+                    "company_info": {"summary": sample_content},
+                },
+                "existing_contacts": [
+                    {"name": "Pieter van Dam", "title": "COO", "email": "pieter@acme.nl"}
+                ],
+                "scraped_content": sample_content,
+            },
         ),
         "company_profile": (
             manager.build_company_profile,

@@ -28,6 +28,7 @@ from prompts import (
     company_extraction,
     company_profile,
     contact_extraction,
+    contact_finder,
     relevance_scoring,
     signal_classification,
 )
@@ -167,6 +168,37 @@ class PromptManager:
         )
         user_msg = contact_extraction.build_prompt({"content": page_content})
         return (system_msg, user_msg, contact_extraction.VERSION)
+
+    def build_contact_finder(
+        self,
+        company: dict,
+        existing_contacts: list[dict],
+        scraped_content: str,
+    ) -> tuple[str, str, str]:
+        """Build prompts for LLM-based contact discovery, supplementing Hunter.
+
+        Args:
+            company: Dict of company facts (name, domain, industry, ``company_info``, ...).
+            existing_contacts: Contacts already discovered (typically by Hunter), each with at
+                least a ``name`` and optional ``email``/``title``. Used by the LLM strictly for
+                de-duplication.
+            scraped_content: Combined markdown of cached /team /about /leadership pages.
+
+        Returns:
+            ``(system_message, user_message, version)`` tuple.
+        """
+        system_msg = contact_finder.build_system_message(
+            company_identity=self._config.company_identity,
+            decision_maker_roles=self._config.decision_maker_roles,
+        )
+        user_msg = contact_finder.build_prompt(
+            {
+                "company": company,
+                "existing_contacts": existing_contacts,
+                "scraped_content": scraped_content,
+            }
+        )
+        return (system_msg, user_msg, contact_finder.VERSION)
 
     def build_company_profile(
         self,

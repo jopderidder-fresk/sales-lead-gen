@@ -4,11 +4,16 @@ Orchestrates providers in priority order to find decision-maker
 contacts for a given company:
 
     1. Hunter.io        — domain search + email verification
-    2. ScrapIn          — GDPR-compliant public professional data
-    3. Scraped content   — LLM contact extraction from already-scraped Signal data
+    2. Gemini finder    — LLM (Gemini) supplement using full company context;
+                          ALWAYS runs after Hunter when Gemini is configured,
+                          dedupes against Hunter's contacts.
+    3. ScrapIn          — GDPR-compliant public professional data
+    4. Scraped content   — LLM contact extraction from already-scraped Signal data
 
 The waterfall stops as soon as at least one contact with a verified email
-is found whose title matches the configured target titles.
+is found whose title matches the configured target titles. The Gemini
+finder is exempt from the short-circuit — it always supplements Hunter
+when configured, regardless of whether Hunter found a verified contact.
 
 This service never scrapes websites directly. It relies on content already
 present in Signal records (created by the separate scrape task). This
@@ -38,6 +43,7 @@ from app.services.api.errors import APIError
 from app.services.api.hunter import HunterClient, VerificationStatus
 from app.services.api.scrapin import ScrapInClient
 from app.services.llm import LLMService, create_llm_client
+from app.services.llm.base import ExtractedContact
 
 logger = structlog.get_logger(__name__)
 
@@ -108,6 +114,10 @@ class EnrichmentService:
         self._hunter: HunterClient | None = None
         self._scrapin: ScrapInClient | None = None
         self._llm: LLMService | None = None
+        # Dedicated Gemini client used as a Hunter supplement. Initialised separately
+        # from ``self._llm`` so this step always uses Gemini regardless of the
+        # globally-configured LLM_PROVIDER. ``None`` if GEMINI_API_KEY is not set.
+        self._gemini: LLMService | None = None
         self._initialized = False
 
     async def _ensure_initialized(self) -> None:
@@ -139,10 +149,22 @@ class EnrichmentService:
         except ValueError:
             pass
 
+        # Dedicated Gemini client for the Hunter-supplement step. We always
+        # want Gemini specifically here, even if LLM_PROVIDER is set to
+        # something else. Try the direct Gemini API first (GEMINI_API_KEY),
+        # then fall back to Google Vertex AI (service-account JSON or path).
+        # If neither is configured the step is silently skipped.
+        for gemini_provider in ("gemini", "google_vertex"):
+            try:
+                self._gemini = await create_llm_client(provider=gemini_provider)
+                break
+            except ValueError:
+                continue
+
     async def close(self) -> None:
         closers = [
             c.close()
-            for c in (self._hunter, self._scrapin, self._llm)
+            for c in (self._hunter, self._scrapin, self._llm, self._gemini)
             if c is not None
         ]
         await asyncio.gather(*closers, return_exceptions=True)
@@ -196,14 +218,23 @@ class EnrichmentService:
         def _remaining() -> float:
             return max(0.0, _ENRICHMENT_TIMEOUT_SECONDS - (time.monotonic() - start_time))
 
-        providers: list[tuple[str, object]] = [
-            ("hunter", self._hunter),
-            ("scrapin", self._scrapin),
-            ("scraped_content", self._llm),
+        # ``always_run=True`` providers run regardless of whether earlier
+        # providers found a verified target-title contact. Used for the Gemini
+        # supplement, which is meant to add to Hunter rather than replace it.
+        providers: list[tuple[str, object, bool]] = [
+            ("hunter", self._hunter, False),
+            ("gemini", self._gemini, True),
+            ("scrapin", self._scrapin, False),
+            ("scraped_content", self._llm, False),
         ]
 
-        for provider_name, client in providers:
+        for provider_name, client, always_run in providers:
             if client is None:
+                continue
+
+            # Waterfall short-circuit: skip non-supplement providers once we've
+            # already found a verified target-title contact.
+            if result.verified_found and not always_run:
                 continue
 
             if _remaining() <= 0:
@@ -219,7 +250,7 @@ class EnrichmentService:
 
             try:
                 contacts = await asyncio.wait_for(
-                    self._try_provider(provider_name, domain, company),
+                    self._try_provider(provider_name, domain, company, session),
                     timeout=_remaining(),
                 )
             except TimeoutError:
@@ -250,7 +281,10 @@ class EnrichmentService:
 
             added = await self._store_contacts(session, company_id, contacts, provider_name)
             result.contacts_added += added
-            result.provider_used = provider_name
+            # Track the first provider that contributed contacts as the "primary"
+            # source. Supplements append rather than overwrite.
+            if result.provider_used is None:
+                result.provider_used = provider_name
 
             has_verified = any(
                 c.email_status == EmailStatus.VERIFIED
@@ -265,7 +299,8 @@ class EnrichmentService:
                     provider=provider_name,
                     contacts_added=added,
                 )
-                break
+                # Don't break — keep going so always-run supplements still execute.
+                continue
 
             log.info(
                 "enrichment.contacts_found_no_verified",
@@ -315,9 +350,12 @@ class EnrichmentService:
         provider: str,
         domain: str,
         company: Company,
+        session: AsyncSession,
     ) -> list[Contact]:
         if provider == "hunter":
             return await self._try_hunter(domain)
+        elif provider == "gemini":
+            return await self._try_gemini(domain, company, session)
         elif provider == "scrapin":
             return await self._try_scrapin(domain)
         elif provider == "scraped_content":
@@ -366,6 +404,93 @@ class EnrichmentService:
                     confidence_score=email_result.confidence / 100.0,
                 )
             )
+        return contacts
+
+    async def _try_gemini(
+        self,
+        domain: str,
+        company: Company,
+        session: AsyncSession,
+    ) -> list[Contact]:
+        """Gemini supplement: identifies extra decision-makers Hunter missed.
+
+        Receives the company profile, cached scraped pages, and the contacts
+        Hunter has already returned (loaded from this session) so the model can
+        explicitly de-duplicate. Any emails the model returns are verified via
+        Hunter when possible.
+        """
+        assert self._gemini is not None
+
+        existing_contacts = await self._load_existing_contacts(session, company.id)
+        existing_emails = {
+            (c.get("email") or "").lower() for c in existing_contacts if c.get("email")
+        }
+        existing_names = {
+            (c.get("name") or "").lower().strip()
+            for c in existing_contacts
+            if c.get("name")
+        }
+
+        scraped_content = await self._get_cached_content(
+            domain, _TEAM_PATHS, company_id=company.id,
+        )
+
+        company_payload = self._company_to_prompt_payload(company)
+
+        try:
+            extracted: list[ExtractedContact] = await self._gemini.find_contacts_with_context(
+                company=company_payload,
+                existing_contacts=existing_contacts,
+                scraped_content=scraped_content,
+            )
+        except Exception as exc:
+            logger.warning("enrichment.gemini_finder_failed", error=str(exc))
+            return []
+
+        contacts: list[Contact] = []
+        for ec in extracted:
+            if not ec.name:
+                continue
+
+            # Drop anything that overlaps with already-known contacts (Hunter +
+            # whatever else this run produced). The prompt asks the model to
+            # avoid duplicates, but we double-check here.
+            name_key = ec.name.lower().strip()
+            email_key = (ec.email or "").lower()
+            if email_key and email_key in existing_emails:
+                continue
+            if name_key and name_key in existing_names:
+                continue
+
+            # Keep only contacts that look like decision-makers. Either the LLM
+            # flagged them, or their title matches the configured target list.
+            title_match = bool(ec.title and self._title_matches(ec.title))
+            if not (ec.is_decision_maker or title_match):
+                continue
+
+            email_status = None
+            if ec.email:
+                email_status = await self._verify_email(ec.email)
+
+            contacts.append(
+                Contact(
+                    company_id=0,
+                    name=ec.name,
+                    title=ec.title,
+                    email=ec.email,
+                    email_status=email_status,
+                    phone=None,
+                    linkedin_url=ec.linkedin_url,
+                    source="gemini",
+                    confidence_score=0.6 if ec.is_decision_maker else 0.4,
+                )
+            )
+
+            if email_key:
+                existing_emails.add(email_key)
+            if name_key:
+                existing_names.add(name_key)
+
         return contacts
 
     async def _try_scrapin(self, domain: str) -> list[Contact]:
@@ -494,6 +619,50 @@ class EnrichmentService:
         return combined
 
     # ── Helpers ───────────────────────────────────────────────────────
+
+    async def _load_existing_contacts(
+        self,
+        session: AsyncSession,
+        company_id: int,
+    ) -> list[dict]:
+        """Return contacts already stored for this company, formatted for the
+        Gemini prompt's de-duplication block.
+        """
+        result = await session.execute(
+            select(Contact.name, Contact.title, Contact.email, Contact.linkedin_url, Contact.source)
+            .where(Contact.company_id == company_id)
+        )
+        return [
+            {
+                "name": row.name,
+                "title": row.title,
+                "email": row.email,
+                "linkedin_url": row.linkedin_url,
+                "source": row.source,
+            }
+            for row in result
+        ]
+
+    @staticmethod
+    def _company_to_prompt_payload(company: Company) -> dict:
+        """Project a Company ORM record into the dict shape consumed by the
+        contact_finder prompt builder.
+        """
+        return {
+            "name": company.name,
+            "domain": company.domain,
+            "industry": company.industry,
+            "size": company.size,
+            "employee_count": company.employee_count,
+            "location": company.location,
+            "city": company.city,
+            "country": company.country,
+            "website_url": company.website_url,
+            "linkedin_url": company.linkedin_url,
+            "founded_year": company.founded_year,
+            "organization_type": company.organization_type,
+            "company_info": company.company_info or {},
+        }
 
     def _title_matches(self, title: str) -> bool:
         """Check if a title matches any of the target title keywords."""

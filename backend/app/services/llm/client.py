@@ -150,6 +150,28 @@ class LLMService:
         result = await self._run(agent, user_msg)
         return result.contacts
 
+    async def find_contacts_with_context(
+        self,
+        company: dict,
+        existing_contacts: list[dict],
+        scraped_content: str = "",
+    ) -> list[ExtractedContact]:
+        """Find decision-maker contacts at a company using full structured context.
+
+        Used as a Hunter.io supplement: receives the contacts Hunter already found
+        (so the LLM can avoid duplicates), plus all available company facts and any
+        cached scraped pages. The LLM is instructed not to fabricate emails — emails
+        should be verified downstream.
+        """
+        system_msg, user_msg, _ = self._prompts.build_contact_finder(
+            company=company,
+            existing_contacts=existing_contacts,
+            scraped_content=scraped_content[:MAX_CONTENT_CHARS],
+        )
+        agent = Agent(self._fast_model, output_type=ContactsResult, instructions=system_msg)
+        result = await self._run(agent, user_msg)
+        return result.contacts
+
     async def generate_company_profile(
         self,
         page_content: str,
