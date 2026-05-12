@@ -17,17 +17,21 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import httpx
 from pydantic import BaseModel, Field
 
 from app.services.api.base_client import BaseAPIClient
 from app.services.api.errors import APIError
 
+if TYPE_CHECKING:
+    import httpx
+
 # ---------------------------------------------------------------------------
 # Response schemas
 # ---------------------------------------------------------------------------
+
+DEFAULT_COMPANY_TASK_TYPE_NAME = "SUS-PROSPECT"
 
 
 class ClickUpTask(BaseModel):
@@ -37,6 +41,7 @@ class ClickUpTask(BaseModel):
     name: str
     status: str | None = None
     url: str | None = None
+    custom_item_id: int | None = None
     custom_fields: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -91,9 +96,19 @@ class ClickUpClient(BaseAPIClient):
     rate_limit_capacity: int = 100
     rate_limit_refill: float = 100.0 / 60.0  # ~1.67 tokens/sec
 
-    def __init__(self, api_key: str, *, list_id: str = "") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        list_id: str = "",
+        workspace_id: str = "",
+        default_task_type_name: str = "",
+    ) -> None:
         super().__init__(api_key=api_key)
         self.list_id = list_id
+        self.workspace_id = workspace_id
+        self.default_task_type_name = default_task_type_name
+        self._custom_task_type_ids_by_name: dict[str, int] | None = None
 
     def _build_headers(self) -> dict[str, str]:
         return {
@@ -121,6 +136,7 @@ class ClickUpClient(BaseAPIClient):
             name=data["name"],
             status=data.get("status", {}).get("status"),
             url=data.get("url"),
+            custom_item_id=data.get("custom_item_id"),
             custom_fields=data.get("custom_fields", []),
         )
 
@@ -136,6 +152,7 @@ class ClickUpClient(BaseAPIClient):
         description: str = "",
         status: str | None = None,
         priority: int | None = None,
+        custom_item_id: int | None = None,
         custom_fields: list[dict[str, Any]] | None = None,
     ) -> ClickUpTask:
         """Create a new task in the specified list.
@@ -146,6 +163,7 @@ class ClickUpClient(BaseAPIClient):
             description: Markdown description.
             status: Task status name (e.g. "to do").
             priority: 1 (urgent) to 4 (low), or None.
+            custom_item_id: ClickUp custom task type ID.
             custom_fields: List of ``{"id": "...", "value": ...}`` dicts.
 
         Returns:
@@ -154,6 +172,12 @@ class ClickUpClient(BaseAPIClient):
         target_list = list_id or self.list_id
         if not target_list:
             raise ValueError("list_id is required to create a task")
+        if custom_item_id is None and list_id is None and self.default_task_type_name:
+            custom_item_id = await self.get_custom_task_type_id(self.default_task_type_name)
+            if custom_item_id is None:
+                raise ValueError(
+                    f"ClickUp custom task type not found: {self.default_task_type_name!r}"
+                )
 
         body: dict[str, Any] = {"name": name}
         if description:
@@ -162,6 +186,8 @@ class ClickUpClient(BaseAPIClient):
             body["status"] = status
         if priority is not None:
             body["priority"] = priority
+        if custom_item_id is not None:
+            body["custom_item_id"] = custom_item_id
         if custom_fields:
             body["custom_fields"] = custom_fields
 
@@ -182,6 +208,7 @@ class ClickUpClient(BaseAPIClient):
         description: str | None = None,
         status: str | None = None,
         priority: int | None = None,
+        custom_item_id: int | None = None,
         custom_fields: list[dict[str, Any]] | None = None,
     ) -> ClickUpTask:
         """Update an existing task's fields.
@@ -192,6 +219,7 @@ class ClickUpClient(BaseAPIClient):
             description: New description (optional).
             status: New status name (optional).
             priority: New priority (optional).
+            custom_item_id: ClickUp custom task type ID.
             custom_fields: Updated custom field values (optional).
 
         Returns:
@@ -206,6 +234,8 @@ class ClickUpClient(BaseAPIClient):
             body["status"] = status
         if priority is not None:
             body["priority"] = priority
+        if custom_item_id is not None:
+            body["custom_item_id"] = custom_item_id
         if custom_fields:
             body["custom_fields"] = custom_fields
 
@@ -281,6 +311,59 @@ class ClickUpClient(BaseAPIClient):
     # ------------------------------------------------------------------
     # Search / find
     # ------------------------------------------------------------------
+
+    async def get_custom_task_type_id(
+        self,
+        name: str,
+        *,
+        workspace_id: str | None = None,
+    ) -> int | None:
+        """Return a custom task type ID by display name.
+
+        ClickUp uses ``custom_item_id`` for task types. The display label must
+        be resolved from the workspace-level custom item registry.
+        """
+        target_workspace = workspace_id or self.workspace_id
+        if not target_workspace:
+            raise ValueError("workspace_id is required to resolve ClickUp custom task types")
+
+        if self._custom_task_type_ids_by_name is None:
+            response = await self.get(
+                f"/team/{target_workspace}/custom_item",
+                credits_used=1.0,
+                cost_estimate=Decimal("0.00"),
+            )
+            data = response.json()
+            raw_items: Any
+            if isinstance(data, list):
+                raw_items = data
+            else:
+                raw_items = (
+                    data.get("custom_items")
+                    or data.get("custom_task_types")
+                    or data.get("items")
+                    or []
+                )
+
+            ids_by_name: dict[str, int] = {}
+            for item in raw_items if isinstance(raw_items, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                raw_id = item.get("id")
+                if raw_id is None:
+                    raw_id = item.get("custom_item_id")
+                try:
+                    item_id = int(raw_id)
+                except (TypeError, ValueError):
+                    continue
+                for key in ("name", "singular_name", "name_plural", "plural_name"):
+                    raw_name = item.get(key)
+                    if isinstance(raw_name, str) and raw_name:
+                        ids_by_name[raw_name.casefold()] = item_id
+
+            self._custom_task_type_ids_by_name = ids_by_name
+
+        return self._custom_task_type_ids_by_name.get(name.casefold())
 
     async def find_task_by_custom_field(
         self,

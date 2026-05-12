@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING
 
 from app.core.config import settings
-from app.services.api.clickup import ClickUpClient
+from app.services.api.clickup import DEFAULT_COMPANY_TASK_TYPE_NAME, ClickUpClient
 from app.services.crm.clickup_provider import PERSON_FIELD_KEYS, ClickUpCRMProvider
-from app.services.crm.protocol import CRMProvider
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.services.crm.protocol import CRMProvider
 
 
 def build_crm_provider(
     *,
     provider_name: str | None = None,
     clickup_api_key: str | None = None,
+    clickup_workspace_id: str | None = None,
     clickup_list_id: str | None = None,
     clickup_domain_field_id: str | None = None,
     clickup_person_fields: dict[str, str] | None = None,
@@ -27,11 +32,21 @@ def build_crm_provider(
     provider = provider_name if provider_name is not None else settings.crm_provider
     if provider == "clickup":
         api_key = clickup_api_key or settings.clickup_api_key
+        workspace_id = clickup_workspace_id or settings.clickup_workspace_id
         list_id = clickup_list_id or settings.clickup_list_id
-        if not api_key or not list_id:
+        if not api_key or not workspace_id or not list_id:
             return None
-        client = ClickUpClient(api_key=api_key, list_id=list_id)
-        domain_fid = clickup_domain_field_id if clickup_domain_field_id is not None else settings.clickup_domain_field_id
+        client = ClickUpClient(
+            api_key=api_key,
+            list_id=list_id,
+            workspace_id=workspace_id,
+            default_task_type_name=DEFAULT_COMPANY_TASK_TYPE_NAME,
+        )
+        domain_fid = (
+            clickup_domain_field_id
+            if clickup_domain_field_id is not None
+            else settings.clickup_domain_field_id
+        )
         pf = clickup_person_fields or {}
         person_fields = {
             k: pf.get(k) or getattr(settings, f"clickup_{k}", "")
@@ -56,9 +71,19 @@ async def build_crm_provider_from_db(session: AsyncSession) -> CRMProvider | Non
 
     provider_name = await get_setting(session, "crm.provider") or settings.crm_provider
     if provider_name == "clickup":
-        api_key = await get_encrypted_setting(session, "crm.clickup.api_key") or settings.clickup_api_key
+        api_key = (
+            await get_encrypted_setting(session, "crm.clickup.api_key")
+            or settings.clickup_api_key
+        )
+        workspace_id = (
+            await get_setting(session, "crm.clickup.workspace_id")
+            or settings.clickup_workspace_id
+        )
         list_id = await get_setting(session, "crm.clickup.list_id") or settings.clickup_list_id
-        domain_field_id = await get_setting(session, "crm.clickup.domain_field_id") or settings.clickup_domain_field_id
+        domain_field_id = (
+            await get_setting(session, "crm.clickup.domain_field_id")
+            or settings.clickup_domain_field_id
+        )
 
         person_fields: dict[str, str] = {}
         for k in PERSON_FIELD_KEYS:
@@ -70,6 +95,7 @@ async def build_crm_provider_from_db(session: AsyncSession) -> CRMProvider | Non
         return build_crm_provider(
             provider_name="clickup",
             clickup_api_key=api_key,
+            clickup_workspace_id=workspace_id,
             clickup_list_id=list_id,
             clickup_domain_field_id=domain_field_id,
             clickup_person_fields=person_fields,

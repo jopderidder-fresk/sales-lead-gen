@@ -29,7 +29,7 @@ from app.schemas.clickup import (
     ClickUpSyncResponse,
     ClickUpTaskResponse,
 )
-from app.services.api.clickup import ClickUpClient
+from app.services.api.clickup import DEFAULT_COMPANY_TASK_TYPE_NAME, ClickUpClient
 from app.services.clickup import ClickUpService
 
 logger = get_logger(__name__)
@@ -97,6 +97,8 @@ def _build_clickup_service() -> ClickUpService:
     client = ClickUpClient(
         api_key=settings.clickup_api_key,
         list_id=settings.clickup_list_id,
+        workspace_id=settings.clickup_workspace_id,
+        default_task_type_name=DEFAULT_COMPANY_TASK_TYPE_NAME,
     )
     return ClickUpService(client=client)
 
@@ -112,6 +114,14 @@ def _require_clickup_configured() -> None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="ClickUp list ID is not configured. Set CLICKUP_LIST_ID or update settings.",
+        )
+    if not settings.clickup_workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "ClickUp workspace ID is not configured. "
+                "Set CLICKUP_WORKSPACE_ID or update settings."
+            ),
         )
 
 

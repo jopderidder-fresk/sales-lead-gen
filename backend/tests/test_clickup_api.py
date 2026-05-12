@@ -2,13 +2,14 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from app.core.database import get_session
-from app.core.deps import get_current_user, require_role
+from app.core.deps import get_current_user
 from app.core.security import create_access_token
 from app.main import app
 from app.models.enums import CompanyStatus, UserRole
-from app.services.api.clickup import ClickUpTask
+from app.services.api.clickup import DEFAULT_COMPANY_TASK_TYPE_NAME, ClickUpClient, ClickUpTask
 from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
@@ -62,6 +63,14 @@ def _fake_company(
     return c
 
 
+def _clickup_response(json_data: dict, *, path: str = "/test") -> httpx.Response:
+    return httpx.Response(
+        status_code=200,
+        json=json_data,
+        request=httpx.Request("GET", f"https://api.clickup.com/api/v2{path}"),
+    )
+
+
 @pytest.fixture()
 def client() -> TestClient:
     return TestClient(app)
@@ -92,15 +101,16 @@ class TestPushToClickUp:
 
         with (
             patch("app.api.v1.clickup.settings") as mock_settings,
-            patch("app.api.v1.clickup.ClickUpService") as MockService,
+            patch("app.api.v1.clickup.ClickUpService") as mock_service_class,
         ):
             mock_settings.clickup_api_key = "pk_test"
+            mock_settings.clickup_workspace_id = "workspace_123"
             mock_settings.clickup_list_id = "list_123"
 
             mock_service = AsyncMock()
             mock_service.push_company = AsyncMock(return_value=task)
             mock_service.close = AsyncMock()
-            MockService.return_value = mock_service
+            mock_service_class.return_value = mock_service
 
             with patch("app.api.v1.clickup._build_clickup_service", return_value=mock_service):
                 response = client.post(
@@ -126,6 +136,7 @@ class TestPushToClickUp:
 
         with patch("app.api.v1.clickup.settings") as mock_settings:
             mock_settings.clickup_api_key = "pk_test"
+            mock_settings.clickup_workspace_id = "workspace_123"
             mock_settings.clickup_list_id = "list_123"
 
             response = client.post(
@@ -186,6 +197,7 @@ class TestGetClickUpTask:
             patch("app.api.v1.clickup._build_clickup_service", return_value=mock_service),
         ):
             mock_settings.clickup_api_key = "pk_test"
+            mock_settings.clickup_workspace_id = "workspace_123"
             mock_settings.clickup_list_id = "list_123"
 
             response = client.get(
@@ -213,6 +225,7 @@ class TestGetClickUpTask:
 
         with patch("app.api.v1.clickup.settings") as mock_settings:
             mock_settings.clickup_api_key = "pk_test"
+            mock_settings.clickup_workspace_id = "workspace_123"
             mock_settings.clickup_list_id = "list_123"
 
             response = client.get(
@@ -315,6 +328,7 @@ class TestClickUpSync:
             patch("app.tasks.integrations.sync_to_crm") as mock_task,
         ):
             mock_settings.clickup_api_key = "pk_test"
+            mock_settings.clickup_workspace_id = "workspace_123"
             mock_settings.clickup_list_id = "list_123"
 
             mock_celery_result = MagicMock()
@@ -331,3 +345,81 @@ class TestClickUpSync:
         assert response.status_code == 202
         data = response.json()
         assert data["task_id"] == "celery_task_abc"
+
+
+# ---------------------------------------------------------------------------
+# ClickUpClient task type payloads
+# ---------------------------------------------------------------------------
+
+
+class TestClickUpClientTaskTypes:
+    async def test_create_task_sets_default_company_task_type(self) -> None:
+        client = ClickUpClient(
+            api_key="pk_test",
+            list_id="list_123",
+            workspace_id="workspace_123",
+            default_task_type_name=DEFAULT_COMPANY_TASK_TYPE_NAME,
+        )
+        client.get_custom_task_type_id = AsyncMock(return_value=4242)  # type: ignore[method-assign]
+        client.post = AsyncMock(
+            return_value=_clickup_response(
+                {
+                    "id": "task_123",
+                    "name": "Acme Corp",
+                    "status": {"status": "suspect"},
+                    "url": "https://app.clickup.com/t/task_123",
+                    "custom_item_id": 4242,
+                },
+                path="/list/list_123/task",
+            )
+        )
+
+        task = await client.create_task(name="Acme Corp", status="suspect")
+
+        assert task.custom_item_id == 4242
+        client.get_custom_task_type_id.assert_awaited_once_with(DEFAULT_COMPANY_TASK_TYPE_NAME)
+        assert client.post.call_args.kwargs["json"]["custom_item_id"] == 4242
+
+    async def test_explicit_list_does_not_inherit_company_task_type(self) -> None:
+        client = ClickUpClient(
+            api_key="pk_test",
+            list_id="company_list",
+            workspace_id="workspace_123",
+            default_task_type_name=DEFAULT_COMPANY_TASK_TYPE_NAME,
+        )
+        client.get_custom_task_type_id = AsyncMock(return_value=4242)  # type: ignore[method-assign]
+        client.post = AsyncMock(
+            return_value=_clickup_response(
+                {
+                    "id": "person_task",
+                    "name": "Jane Doe",
+                    "status": {"status": "prospect"},
+                    "url": "https://app.clickup.com/t/person_task",
+                },
+                path="/list/person_list/task",
+            )
+        )
+
+        await client.create_task(name="Jane Doe", list_id="person_list", status="prospect")
+
+        client.get_custom_task_type_id.assert_not_called()
+        assert "custom_item_id" not in client.post.call_args.kwargs["json"]
+
+    async def test_resolves_custom_task_type_id_by_name(self) -> None:
+        client = ClickUpClient(api_key="pk_test", workspace_id="workspace_123")
+        client.get = AsyncMock(
+            return_value=_clickup_response(
+                {
+                    "custom_items": [
+                        {"id": 0, "name": "Task"},
+                        {"id": 4242, "name": "SUS-PROSPECT"},
+                    ]
+                },
+                path="/team/workspace_123/custom_item",
+            )
+        )
+
+        task_type_id = await client.get_custom_task_type_id("sus-prospect")
+
+        assert task_type_id == 4242
+        client.get.assert_awaited_once()
