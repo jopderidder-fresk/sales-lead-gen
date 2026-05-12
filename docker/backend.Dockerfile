@@ -34,6 +34,8 @@ FROM python:3.12-slim AS prod
 
 RUN addgroup --system app && adduser --system --ingroup app app
 
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
 # Copy installed Python packages from builder
@@ -50,7 +52,8 @@ COPY --chown=app:app backend/alembic ./alembic
 
 # Startup script (waits for DB, runs migrations for backend only)
 COPY docker/start.sh /start.sh
-RUN chmod +x /start.sh
+COPY docker/backend-healthcheck.py /backend-healthcheck.py
+RUN chmod +x /start.sh /backend-healthcheck.py
 
 USER app
 EXPOSE 8000

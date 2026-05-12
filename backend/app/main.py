@@ -1,7 +1,7 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -89,8 +89,22 @@ async def health_deep() -> dict[str, str]:
     """Check database and Redis connectivity."""
     from sqlalchemy import text
 
-    async with async_session_factory() as session:
-        await session.execute(text("SELECT 1"))
+    try:
+        async with async_session_factory() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception as exc:
+        logger.exception("health_deep_database_failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="database unavailable",
+        ) from exc
 
-    await redis_client.ping()
+    try:
+        await redis_client.ping()
+    except Exception as exc:
+        logger.exception("health_deep_redis_failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="redis unavailable",
+        ) from exc
     return {"status": "ok", "version": settings.app_version}
