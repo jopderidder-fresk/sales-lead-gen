@@ -8,7 +8,7 @@ Provides:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -16,9 +16,13 @@ from app.core.database import get_session
 from app.core.deps import get_current_user, require_role
 from app.core.logging import get_logger
 from app.models.company import Company
+from app.models.contact import Contact
+from app.models.crm_integration import CRMIntegration
 from app.models.enums import CompanyStatus
+from app.models.signal import Signal
 from app.models.user import User
 from app.schemas.clickup import (
+    ClickUpCleanupResponse,
     ClickUpPushResponse,
     ClickUpSettingsResponse,
     ClickUpSettingsUpdate,
@@ -245,4 +249,82 @@ async def trigger_clickup_sync(
     return ClickUpSyncResponse(
         task_id=task.id,
         message="ClickUp sync task dispatched",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cleanup — local unlink only
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/clickup/cleanup",
+    response_model=ClickUpCleanupResponse,
+)
+async def cleanup_clickup_links(
+    _user: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> ClickUpCleanupResponse:
+    """Unlink all local references to ClickUp tasks so we can re-push from scratch.
+
+    This does NOT delete tasks in ClickUp. It only wipes the local link state:
+      - Clears clickup_task_id/url/status on every company
+      - Clears clickup_task_id/url on every contact
+      - Deletes every crm_integrations row
+      - Resets signal.crm_commented_at so signals re-post on the next push
+      - Reverts companies in 'pushed' status back to 'qualified'
+    """
+    companies_unlinked = (
+        await session.execute(
+            update(Company)
+            .where(Company.clickup_task_id.is_not(None))
+            .values(clickup_task_id=None, clickup_task_url=None, clickup_status=None)
+        )
+    ).rowcount or 0
+
+    contacts_unlinked = (
+        await session.execute(
+            update(Contact)
+            .where(Contact.clickup_task_id.is_not(None))
+            .values(clickup_task_id=None, clickup_task_url=None)
+        )
+    ).rowcount or 0
+
+    crm_integrations_deleted = (
+        await session.execute(delete(CRMIntegration))
+    ).rowcount or 0
+
+    signals_reset = (
+        await session.execute(
+            update(Signal)
+            .where(Signal.crm_commented_at.is_not(None))
+            .values(crm_commented_at=None)
+        )
+    ).rowcount or 0
+
+    companies_reverted = (
+        await session.execute(
+            update(Company)
+            .where(Company.status == CompanyStatus.PUSHED)
+            .values(status=CompanyStatus.QUALIFIED)
+        )
+    ).rowcount or 0
+
+    await session.commit()
+
+    logger.warning(
+        "clickup.cleanup_completed",
+        companies_unlinked=companies_unlinked,
+        contacts_unlinked=contacts_unlinked,
+        crm_integrations_deleted=crm_integrations_deleted,
+        signals_reset=signals_reset,
+        companies_reverted_to_qualified=companies_reverted,
+    )
+
+    return ClickUpCleanupResponse(
+        companies_unlinked=companies_unlinked,
+        contacts_unlinked=contacts_unlinked,
+        crm_integrations_deleted=crm_integrations_deleted,
+        signals_reset=signals_reset,
+        companies_reverted_to_qualified=companies_reverted,
     )

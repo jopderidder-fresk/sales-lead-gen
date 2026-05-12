@@ -618,6 +618,14 @@ export interface ClickUpSettingsUpdate {
   list_id?: string;
 }
 
+export interface ClickUpCleanupResponse {
+  companies_unlinked: number;
+  contacts_unlinked: number;
+  crm_integrations_deleted: number;
+  signals_reset: number;
+  companies_reverted_to_qualified: number;
+}
+
 // ── CRM Settings ─────────────────────────────────────────────────
 
 export interface ClickUpCRMSettings {

@@ -43,3 +43,16 @@ class ClickUpTaskResponse(BaseModel):
     name: str
     status: str | None = None
     url: str | None = None
+
+
+class ClickUpCleanupResponse(BaseModel):
+    """Result of unlinking all local ClickUp/CRM references.
+
+    Counts only — no remote ClickUp tasks are deleted.
+    """
+
+    companies_unlinked: int
+    contacts_unlinked: int
+    crm_integrations_deleted: int
+    signals_reset: int
+    companies_reverted_to_qualified: int

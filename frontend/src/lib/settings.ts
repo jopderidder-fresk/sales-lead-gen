@@ -4,6 +4,7 @@ import api from "./api";
 import type {
   APIKeysSettingsResponse,
   APIKeysSettingsUpdate,
+  ClickUpCleanupResponse,
   ClickUpSettingsResponse,
   ClickUpSettingsUpdate,
   CRMSettingsResponse,
@@ -85,6 +86,22 @@ export function useUpdateClickUpSettings() {
       return data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.clickup }),
+  });
+}
+
+export function useCleanupClickUp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post<ClickUpCleanupResponse>(
+        "/api/v1/clickup/cleanup",
+      );
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.clickup });
+      qc.invalidateQueries({ queryKey: keys.crm });
+    },
   });
 }
 

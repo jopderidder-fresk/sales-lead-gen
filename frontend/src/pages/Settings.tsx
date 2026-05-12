@@ -2,6 +2,7 @@ import { CustomSelect } from "@/components/Select";
 import {
   useAPIKeysSettings,
   useUpdateAPIKeysSettings,
+  useCleanupClickUp,
   useCRMSettings,
   useUpdateCRMSettings,
   useJobs,
@@ -14,6 +15,7 @@ import {
   useUsageLimits,
   useUpdateUsageLimits,
 } from "@/lib/settings";
+import type { ClickUpCleanupResponse } from "@/types/api";
 import type { APIKeyStatus } from "@/types/api";
 import {
   AlertTriangle,
@@ -25,6 +27,7 @@ import {
   Rss,
   Send,
   Shield,
+  Trash2,
 } from "lucide-react";
 import { isAxiosError } from "axios";
 import { useEffect, useState } from "react";
@@ -699,6 +702,115 @@ function CRMCard() {
             Failed to save: {apiErrorMessage(update.error, "Unknown error")}
           </span>
         )}
+      </div>
+
+      <CRMCleanupZone />
+    </div>
+  );
+}
+
+// ── CRM Cleanup (danger zone) ─────────────────────────────────────
+
+function CRMCleanupZone() {
+  const cleanup = useCleanupClickUp();
+  const [confirming, setConfirming] = useState(false);
+  const [result, setResult] = useState<ClickUpCleanupResponse | null>(null);
+
+  function handleConfirm() {
+    setResult(null);
+    cleanup.mutate(undefined, {
+      onSuccess: (data) => {
+        setResult(data);
+        setConfirming(false);
+      },
+    });
+  }
+
+  return (
+    <div className="mt-8 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+        <div className="flex-1">
+          <h3 className="text-sm font-semibold text-destructive">
+            Danger zone — clear all ClickUp links
+          </h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Unlinks every company and contact from their ClickUp tasks locally so
+            you can start pushing again from scratch. Tasks already in ClickUp are
+            NOT deleted — remove them in ClickUp manually if needed. Companies in
+            status <code className="rounded bg-muted px-1">pushed</code> revert to
+            <code className="ml-1 rounded bg-muted px-1">qualified</code>.
+          </p>
+
+          {!confirming && (
+            <button
+              type="button"
+              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-destructive/50 bg-card px-3 py-1.5 text-sm font-medium text-destructive shadow-sm transition-all hover:bg-destructive/10 disabled:opacity-50"
+              onClick={() => {
+                setResult(null);
+                setConfirming(true);
+              }}
+              disabled={cleanup.isPending}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Clear all ClickUp links
+            </button>
+          )}
+
+          {confirming && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-destructive">
+                Are you sure? This cannot be undone.
+              </span>
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-lg bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground shadow-sm transition-all hover:bg-destructive/90 disabled:opacity-50"
+                onClick={handleConfirm}
+                disabled={cleanup.isPending}
+              >
+                {cleanup.isPending && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                )}
+                Yes, clear everything
+              </button>
+              <button
+                type="button"
+                className={btnSecondary}
+                onClick={() => setConfirming(false)}
+                disabled={cleanup.isPending}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {result && (
+            <div className="mt-3 rounded-md border border-green-600/30 bg-green-50 px-3 py-2 text-xs text-green-800 dark:bg-green-950/30 dark:text-green-300">
+              <div className="flex items-center gap-1.5 font-medium">
+                <Check className="h-3.5 w-3.5" /> Cleanup complete
+              </div>
+              <ul className="mt-1.5 space-y-0.5">
+                <li>Companies unlinked: {result.companies_unlinked}</li>
+                <li>Contacts unlinked: {result.contacts_unlinked}</li>
+                <li>
+                  CRM integration rows deleted:{" "}
+                  {result.crm_integrations_deleted}
+                </li>
+                <li>Signal comment timestamps reset: {result.signals_reset}</li>
+                <li>
+                  Companies reverted to qualified:{" "}
+                  {result.companies_reverted_to_qualified}
+                </li>
+              </ul>
+            </div>
+          )}
+
+          {cleanup.isError && (
+            <p className="mt-3 text-xs text-destructive">
+              Failed: {apiErrorMessage(cleanup.error, "Unknown error")}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
