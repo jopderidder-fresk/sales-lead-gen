@@ -3,7 +3,7 @@ FROM python:3.12-slim AS builder
 WORKDIR /app
 
 # Install uv for fast dependency management (only in builder stage)
-COPY --from=ghcr.io/astral-sh/uv:0.7 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /usr/local/bin/uv
 
 # Install dependencies from lockfile (cached layer)
 COPY backend/pyproject.toml backend/uv.lock ./
